@@ -22,12 +22,12 @@ from typing import (  # noqa
     cast,
 )
 
+from aiosignal import Signal
+from frozenlist import FrozenList
 from typing_extensions import final
 
 from . import hdrs
-from .frozenlist import FrozenList
 from .log import web_logger
-from .signals import Signal
 from .web_middlewares import _fix_request_current_app
 from .web_request import Request
 from .web_response import StreamResponse
@@ -46,10 +46,11 @@ __all__ = ("Application", "CleanupError")
 
 
 if TYPE_CHECKING:  # pragma: no cover
+    from .typedefs import Handler
+
     _AppSignal = Signal[Callable[["Application"], Awaitable[None]]]
     _RespPrepareSignal = Signal[Callable[[Request, StreamResponse], Awaitable[None]]]
-    _Handler = Callable[[Request], Awaitable[StreamResponse]]
-    _Middleware = Callable[[Request, _Handler], Awaitable[StreamResponse]]
+    _Middleware = Callable[[Request, Handler], Awaitable[StreamResponse]]
     _Middlewares = FrozenList[_Middleware]
     _MiddlewaresHandlers = Sequence[_Middleware]
     _Subapps = List["Application"]
@@ -318,7 +319,11 @@ class Application(MutableMapping[str, Any]):
 
         Should be called after shutdown()
         """
-        await self.on_cleanup.send(self)
+        if self.on_cleanup.frozen:
+            await self.on_cleanup.send(self)
+        else:
+            # If an exception occurs in startup, ensure cleanup contexts are completed.
+            await self._cleanup_ctx._on_cleanup(self)
 
     def _prepare_middleware(self) -> Iterator[_Middleware]:
         yield from reversed(self._middlewares)
@@ -330,7 +335,7 @@ class Application(MutableMapping[str, Any]):
         match_info.freeze()
 
         resp = None
-        request._match_info = match_info  # type: ignore
+        request._match_info = match_info  # type: ignore[assignment]
         expect = request.headers.get(hdrs.EXPECT)
         if expect:
             resp = await match_info.expect_handler(request)
@@ -342,7 +347,7 @@ class Application(MutableMapping[str, Any]):
             if self._run_middlewares:
                 for app in match_info.apps[::-1]:
                     assert app.pre_frozen, "middleware handlers are not ready"
-                    for m in app._middlewares_handlers:  # noqa
+                    for m in app._middlewares_handlers:
                         handler = update_wrapper(partial(m, handler=handler), handler)
 
             resp = await handler(request)
@@ -363,7 +368,7 @@ class Application(MutableMapping[str, Any]):
 class CleanupError(RuntimeError):
     @property
     def exceptions(self) -> List[BaseException]:
-        return self.args[1]
+        return cast(List[BaseException], self.args[1])
 
 
 if TYPE_CHECKING:  # pragma: no cover

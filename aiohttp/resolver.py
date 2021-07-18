@@ -1,8 +1,8 @@
+import asyncio
 import socket
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Type, Union
 
 from .abc import AbstractResolver
-from .helpers import get_running_loop
 
 __all__ = ("ThreadedResolver", "AsyncResolver", "DefaultResolver")
 
@@ -22,18 +22,22 @@ class ThreadedResolver(AbstractResolver):
     """
 
     def __init__(self) -> None:
-        self._loop = get_running_loop()
+        self._loop = asyncio.get_running_loop()
 
     async def resolve(
         self, hostname: str, port: int = 0, family: int = socket.AF_INET
     ) -> List[Dict[str, Any]]:
         infos = await self._loop.getaddrinfo(
-            hostname, port, type=socket.SOCK_STREAM, family=family
+            hostname,
+            port,
+            type=socket.SOCK_STREAM,
+            family=family,
+            flags=socket.AI_ADDRCONFIG,
         )
 
         hosts = []
         for family, _, proto, _, address in infos:
-            if family == socket.AF_INET6 and address[3]:  # type: ignore
+            if family == socket.AF_INET6 and address[3]:  # type: ignore[misc]
                 # This is essential for link-local IPv6 addresses.
                 # LL IPv6 is a VERY rare case. Strictly speaking, we should use
                 # getnameinfo() unconditionally, but performance makes sense.
@@ -67,7 +71,7 @@ class AsyncResolver(AbstractResolver):
         if aiodns is None:
             raise RuntimeError("Resolver requires aiodns library")
 
-        self._loop = get_running_loop()
+        self._loop = asyncio.get_running_loop()
         self._resolver = aiodns.DNSResolver(*args, loop=self._loop, **kwargs)
 
     async def resolve(
@@ -97,7 +101,8 @@ class AsyncResolver(AbstractResolver):
         return hosts
 
     async def close(self) -> None:
-        return self._resolver.cancel()
+        self._resolver.cancel()
 
 
-DefaultResolver = AsyncResolver if aiodns_default else ThreadedResolver
+_DefaultType = Type[Union[AsyncResolver, ThreadedResolver]]
+DefaultResolver: _DefaultType = AsyncResolver if aiodns_default else ThreadedResolver

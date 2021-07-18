@@ -1,10 +1,11 @@
 """WebSocket client for asyncio."""
 
 import asyncio
-from typing import Any, Optional
+import dataclasses
+from typing import Any, Optional, cast
 
 import async_timeout
-import attr
+from typing_extensions import Final
 
 from .client_exceptions import ClientError
 from .client_reqrep import ClientResponse
@@ -13,11 +14,12 @@ from .http import (
     WS_CLOSED_MESSAGE,
     WS_CLOSING_MESSAGE,
     WebSocketError,
+    WSCloseCode,
     WSMessage,
     WSMsgType,
 )
 from .http_websocket import WebSocketWriter  # WSMessage
-from .streams import EofStream, FlowControlDataQueue  # noqa
+from .streams import EofStream, FlowControlDataQueue
 from .typedefs import (
     DEFAULT_JSON_DECODER,
     DEFAULT_JSON_ENCODER,
@@ -26,13 +28,15 @@ from .typedefs import (
 )
 
 
-@attr.s(auto_attribs=True, frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True)
 class ClientWSTimeout:
     ws_receive: Optional[float] = None
     ws_close: Optional[float] = None
 
 
-DEFAULT_WS_CLIENT_TIMEOUT = ClientWSTimeout(ws_receive=None, ws_close=10.0)
+DEFAULT_WS_CLIENT_TIMEOUT: Final[ClientWSTimeout] = ClientWSTimeout(
+    ws_receive=None, ws_close=10.0
+)
 
 
 class ClientWebSocketResponse:
@@ -64,10 +68,10 @@ class ClientWebSocketResponse:
         self._autoclose = autoclose
         self._autoping = autoping
         self._heartbeat = heartbeat
-        self._heartbeat_cb = None
+        self._heartbeat_cb: Optional[asyncio.TimerHandle] = None
         if heartbeat is not None:
             self._pong_heartbeat = heartbeat / 2.0
-        self._pong_response_cb = None
+        self._pong_response_cb: Optional[asyncio.TimerHandle] = None
         self._loop = loop
         self._waiting = None  # type: Optional[asyncio.Future[bool]]
         self._exception = None  # type: Optional[BaseException]
@@ -109,7 +113,7 @@ class ClientWebSocketResponse:
     def _pong_not_received(self) -> None:
         if not self._closed:
             self._closed = True
-            self._close_code = 1006
+            self._close_code = WSCloseCode.ABNORMAL_CLOSURE
             self._exception = asyncio.TimeoutError()
             self._response.close()
 
@@ -171,7 +175,7 @@ class ClientWebSocketResponse:
     ) -> None:
         await self.send_str(dumps(data), compress=compress)
 
-    async def close(self, *, code: int = 1000, message: bytes = b"") -> bool:
+    async def close(self, *, code: int = WSCloseCode.OK, message: bytes = b"") -> bool:
         # we need to break `receive()` cycle first,
         # `close()` may be called from different task
         if self._waiting is not None and not self._closed:
@@ -184,11 +188,11 @@ class ClientWebSocketResponse:
             try:
                 await self._writer.close(code, message)
             except asyncio.CancelledError:
-                self._close_code = 1006
+                self._close_code = WSCloseCode.ABNORMAL_CLOSURE
                 self._response.close()
                 raise
             except Exception as exc:
-                self._close_code = 1006
+                self._close_code = WSCloseCode.ABNORMAL_CLOSURE
                 self._exception = exc
                 self._response.close()
                 return True
@@ -202,11 +206,11 @@ class ClientWebSocketResponse:
                     async with async_timeout.timeout(self._timeout.ws_close):
                         msg = await self._reader.read()
                 except asyncio.CancelledError:
-                    self._close_code = 1006
+                    self._close_code = WSCloseCode.ABNORMAL_CLOSURE
                     self._response.close()
                     raise
                 except Exception as exc:
-                    self._close_code = 1006
+                    self._close_code = WSCloseCode.ABNORMAL_CLOSURE
                     self._exception = exc
                     self._response.close()
                     return True
@@ -242,15 +246,15 @@ class ClientWebSocketResponse:
                     self._waiting = None
                     set_result(waiter, True)
             except (asyncio.CancelledError, asyncio.TimeoutError):
-                self._close_code = 1006
+                self._close_code = WSCloseCode.ABNORMAL_CLOSURE
                 raise
             except EofStream:
-                self._close_code = 1000
+                self._close_code = WSCloseCode.OK
                 await self.close()
                 return WSMessage(WSMsgType.CLOSED, None, None)
             except ClientError:
                 self._closed = True
-                self._close_code = 1006
+                self._close_code = WSCloseCode.ABNORMAL_CLOSURE
                 return WS_CLOSED_MESSAGE
             except WebSocketError as exc:
                 self._close_code = exc.code
@@ -259,7 +263,7 @@ class ClientWebSocketResponse:
             except Exception as exc:
                 self._exception = exc
                 self._closing = True
-                self._close_code = 1006
+                self._close_code = WSCloseCode.ABNORMAL_CLOSURE
                 await self.close()
                 return WSMessage(WSMsgType.ERROR, exc, None)
 
@@ -282,13 +286,13 @@ class ClientWebSocketResponse:
         msg = await self.receive(timeout)
         if msg.type != WSMsgType.TEXT:
             raise TypeError(f"Received message {msg.type}:{msg.data!r} is not str")
-        return msg.data
+        return cast(str, msg.data)
 
     async def receive_bytes(self, *, timeout: Optional[float] = None) -> bytes:
         msg = await self.receive(timeout)
         if msg.type != WSMsgType.BINARY:
             raise TypeError(f"Received message {msg.type}:{msg.data!r} is not bytes")
-        return msg.data
+        return cast(bytes, msg.data)
 
     async def receive_json(
         self,
@@ -305,5 +309,5 @@ class ClientWebSocketResponse:
     async def __anext__(self) -> WSMessage:
         msg = await self.receive()
         if msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.CLOSED):
-            raise StopAsyncIteration  # NOQA
+            raise StopAsyncIteration
         return msg

@@ -1,3 +1,4 @@
+# type: ignore
 import asyncio
 import base64
 import gc
@@ -5,9 +6,11 @@ import os
 import platform
 from math import isclose, modf
 from unittest import mock
+from urllib.request import getproxies_environment
 
 import pytest
-from multidict import MultiDict
+from multidict import CIMultiDict, MultiDict
+from re_assert import Matches
 from yarl import URL
 
 from aiohttp import helpers
@@ -370,10 +373,7 @@ def test_timer_context_cancelled() -> None:
             with ctx:
                 pass
 
-        if helpers.PY_37:
-            assert m_asyncio.current_task.return_value.cancel.called
-        else:
-            assert m_asyncio.Task.current_task.return_value.cancel.called
+        assert m_asyncio.current_task.return_value.cancel.called
 
 
 def test_timer_context_no_task(loop) -> None:
@@ -436,11 +436,25 @@ async def test_ceil_timeout_small(loop) -> None:
 # -------------------------------- ContentDisposition -------------------
 
 
-def test_content_disposition() -> None:
-    assert (
-        helpers.content_disposition_header("attachment", foo="bar")
-        == 'attachment; foo="bar"'
-    )
+@pytest.mark.parametrize(
+    "kwargs, result",
+    [
+        (dict(foo="bar"), 'attachment; foo="bar"'),
+        (dict(foo="bar[]"), 'attachment; foo="bar[]"'),
+        (dict(foo=' a""b\\'), 'attachment; foo="\\ a\\"\\"b\\\\"'),
+        (dict(foo="bär"), "attachment; foo*=utf-8''b%C3%A4r"),
+        (dict(foo='bär "\\', quote_fields=False), 'attachment; foo="bär \\"\\\\"'),
+        (dict(foo="bär", _charset="latin-1"), "attachment; foo*=latin-1''b%E4r"),
+        (dict(filename="bär"), 'attachment; filename="b%C3%A4r"'),
+        (dict(filename="bär", _charset="latin-1"), 'attachment; filename="b%E4r"'),
+        (
+            dict(filename='bär "\\', quote_fields=False),
+            'attachment; filename="bär \\"\\\\"',
+        ),
+    ],
+)
+def test_content_disposition(kwargs, result) -> None:
+    assert helpers.content_disposition_header("attachment", **kwargs) == result
 
 
 def test_content_disposition_bad_type() -> None:
@@ -502,18 +516,94 @@ def test_proxies_from_env_http_with_auth(mocker) -> None:
     assert proxy_auth.encoding == "latin1"
 
 
-# ------------ get_running_loop ---------------------------------
+# --------------------- get_env_proxy_for_url ------------------------------
 
 
-def test_get_running_loop_not_running(loop) -> None:
-    with pytest.raises(
-        RuntimeError, match="The object should be created within an async function"
-    ):
-        helpers.get_running_loop()
+@pytest.fixture
+def proxy_env_vars(monkeypatch, request):
+    for schema in getproxies_environment().keys():
+        monkeypatch.delenv(f"{schema}_proxy", False)
+
+    for proxy_type, proxy_list in request.param.items():
+        monkeypatch.setenv(proxy_type, proxy_list)
+
+    return request.param
 
 
-async def test_get_running_loop_ok(loop) -> None:
-    assert helpers.get_running_loop() is loop
+@pytest.mark.parametrize(
+    ("proxy_env_vars", "url_input", "expected_err_msg"),
+    (
+        (
+            {"no_proxy": "aiohttp.io"},
+            "http://aiohttp.io/path",
+            r"Proxying is disallowed for `'aiohttp.io'`",
+        ),
+        (
+            {"no_proxy": "aiohttp.io,proxy.com"},
+            "http://aiohttp.io/path",
+            r"Proxying is disallowed for `'aiohttp.io'`",
+        ),
+        (
+            {"http_proxy": "http://example.com"},
+            "https://aiohttp.io/path",
+            r"No proxies found for `https://aiohttp.io/path` in the env",
+        ),
+        (
+            {"https_proxy": "https://example.com"},
+            "http://aiohttp.io/path",
+            r"No proxies found for `http://aiohttp.io/path` in the env",
+        ),
+        (
+            {},
+            "https://aiohttp.io/path",
+            r"No proxies found for `https://aiohttp.io/path` in the env",
+        ),
+        (
+            {"https_proxy": "https://example.com"},
+            "",
+            r"No proxies found for `` in the env",
+        ),
+    ),
+    indirect=["proxy_env_vars"],
+    ids=(
+        "url_matches_the_no_proxy_list",
+        "url_matches_the_no_proxy_list_multiple",
+        "url_scheme_does_not_match_http_proxy_list",
+        "url_scheme_does_not_match_https_proxy_list",
+        "no_proxies_are_set",
+        "url_is_empty",
+    ),
+)
+@pytest.mark.usefixtures("proxy_env_vars")
+def test_get_env_proxy_for_url_negative(url_input, expected_err_msg) -> None:
+    url = URL(url_input)
+    with pytest.raises(LookupError, match=expected_err_msg):
+        helpers.get_env_proxy_for_url(url)
+
+
+@pytest.mark.parametrize(
+    ("proxy_env_vars", "url_input"),
+    (
+        ({"http_proxy": "http://example.com"}, "http://aiohttp.io/path"),
+        ({"https_proxy": "http://example.com"}, "https://aiohttp.io/path"),
+        (
+            {"http_proxy": "http://example.com,http://proxy.org"},
+            "http://aiohttp.io/path",
+        ),
+    ),
+    indirect=["proxy_env_vars"],
+    ids=(
+        "url_scheme_match_http_proxy_list",
+        "url_scheme_match_https_proxy_list",
+        "url_scheme_match_http_proxy_list_multiple",
+    ),
+)
+def test_get_env_proxy_for_url(proxy_env_vars, url_input) -> None:
+    url = URL(url_input)
+    proxy, proxy_auth = helpers.get_env_proxy_for_url(url)
+    proxy_list = proxy_env_vars[url.scheme + "_proxy"]
+    assert proxy == URL(proxy_list)
+    assert proxy_auth is None
 
 
 # ------------- set_result / set_exception ----------------------
@@ -654,3 +744,99 @@ def test_is_expected_content_type_non_json_not_match():
     assert not is_expected_content_type(
         response_content_type=response_ct, expected_content_type=expected_ct
     )
+
+
+def test_cookies_mixin():
+    sut = helpers.CookieMixin()
+
+    assert sut.cookies == {}
+    assert str(sut.cookies) == ""
+
+    sut.set_cookie("name", "value")
+    assert str(sut.cookies) == "Set-Cookie: name=value; Path=/"
+    sut.set_cookie("name", "other_value")
+    assert str(sut.cookies) == "Set-Cookie: name=other_value; Path=/"
+
+    sut.cookies["name"] = "another_other_value"
+    sut.cookies["name"]["max-age"] = 10
+    assert (
+        str(sut.cookies) == "Set-Cookie: name=another_other_value; Max-Age=10; Path=/"
+    )
+
+    sut.del_cookie("name")
+    expected = (
+        'Set-Cookie: name=("")?; '
+        "expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; Path=/"
+    )
+    assert Matches(expected) == str(sut.cookies)
+
+    sut.set_cookie("name", "value", domain="local.host")
+    expected = "Set-Cookie: name=value; Domain=local.host; Path=/"
+    assert str(sut.cookies) == expected
+
+
+def test_cookies_mixin_path():
+    sut = helpers.CookieMixin()
+
+    assert sut.cookies == {}
+
+    sut.set_cookie("name", "value", path="/some/path")
+    assert str(sut.cookies) == "Set-Cookie: name=value; Path=/some/path"
+    sut.set_cookie("name", "value", expires="123")
+    assert str(sut.cookies) == "Set-Cookie: name=value; expires=123; Path=/"
+    sut.set_cookie(
+        "name",
+        "value",
+        domain="example.com",
+        path="/home",
+        expires="123",
+        max_age="10",
+        secure=True,
+        httponly=True,
+        version="2.0",
+        samesite="lax",
+    )
+    assert (
+        str(sut.cookies).lower() == "set-cookie: name=value; "
+        "domain=example.com; "
+        "expires=123; "
+        "httponly; "
+        "max-age=10; "
+        "path=/home; "
+        "samesite=lax; "
+        "secure; "
+        "version=2.0"
+    )
+
+
+def test_sutonse_cookie__issue_del_cookie():
+    sut = helpers.CookieMixin()
+
+    assert sut.cookies == {}
+    assert str(sut.cookies) == ""
+
+    sut.del_cookie("name")
+    expected = (
+        'Set-Cookie: name=("")?; '
+        "expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; Path=/"
+    )
+    assert Matches(expected) == str(sut.cookies)
+
+
+def test_cookie_set_after_del():
+    sut = helpers.CookieMixin()
+
+    sut.del_cookie("name")
+    sut.set_cookie("name", "val")
+    # check for Max-Age dropped
+    expected = "Set-Cookie: name=val; Path=/"
+    assert str(sut.cookies) == expected
+
+
+def test_populate_with_cookies():
+    cookies_mixin = helpers.CookieMixin()
+    cookies_mixin.set_cookie("name", "value")
+    headers = CIMultiDict()
+
+    helpers.populate_with_cookies(headers, cookies_mixin.cookies)
+    assert headers == CIMultiDict({"Set-Cookie": "name=value; Path=/"})

@@ -1,6 +1,8 @@
+# type: ignore
 import datetime
 import platform
 import sys
+from typing import Any
 from unittest import mock
 
 import pytest
@@ -8,7 +10,7 @@ import pytest
 import aiohttp
 from aiohttp import web
 from aiohttp.abc import AbstractAccessLogger, AbstractAsyncAccessLogger
-from aiohttp.helpers import PY_37
+from aiohttp.typedefs import Handler
 from aiohttp.web_log import AccessLogger
 from aiohttp.web_response import Response
 
@@ -17,7 +19,7 @@ try:
 except ImportError:
     ContextVar = None
 
-IS_PYPY = platform.python_implementation() == "PyPy"
+IS_PYPY: Any = platform.python_implementation() == "PyPy"
 
 
 def test_access_logger_format() -> None:
@@ -80,7 +82,9 @@ def test_access_logger_format() -> None:
         ),
     ],
 )
-def test_access_logger_atoms(monkeypatch, log_format, expected, extra) -> None:
+def test_access_logger_atoms(
+    monkeypatch: Any, log_format: Any, expected: Any, extra: Any
+) -> None:
     class PatchedDatetime(datetime.datetime):
         @staticmethod
         def now(tz):
@@ -185,7 +189,7 @@ def test_logger_abc() -> None:
     mock_logger.info.assert_called_with("request response 1")
 
 
-async def test_exc_info_context(aiohttp_raw_server, aiohttp_client):
+async def test_exc_info_context(aiohttp_raw_server: Any, aiohttp_client: Any) -> None:
     exc_msg = None
 
     class Logger(AbstractAccessLogger):
@@ -204,7 +208,7 @@ async def test_exc_info_context(aiohttp_raw_server, aiohttp_client):
     assert exc_msg == "RuntimeError: intentional runtime error"
 
 
-async def test_async_logger(aiohttp_raw_server, aiohttp_client):
+async def test_async_logger(aiohttp_raw_server: Any, aiohttp_client: Any):
     msg = None
 
     class Logger(AbstractAsyncAccessLogger):
@@ -223,14 +227,13 @@ async def test_async_logger(aiohttp_raw_server, aiohttp_client):
     assert msg == "/path/to: 200"
 
 
-@pytest.mark.skipif(not PY_37, reason="contextvars support is required")
-async def test_contextvars_logger(aiohttp_server, aiohttp_client):
+async def test_contextvars_logger(aiohttp_server: Any, aiohttp_client: Any):
     VAR = ContextVar("VAR")
 
     async def handler(request):
         return web.Response()
 
-    async def middleware(request, handler):
+    async def middleware(request, handler: Handler):
         VAR.set("uuid")
         return await handler(request)
 

@@ -4,9 +4,9 @@ import asyncio
 import base64
 import binascii
 import cgi
+import dataclasses
 import datetime
 import functools
-import inspect
 import netrc
 import os
 import platform
@@ -16,12 +16,12 @@ import time
 import weakref
 from collections import namedtuple
 from contextlib import suppress
+from http.cookies import SimpleCookie
 from math import ceil
 from pathlib import Path
 from types import TracebackType
-from typing import (  # noqa
+from typing import (
     Any,
-    Awaitable,
     Callable,
     Dict,
     Generator,
@@ -30,9 +30,9 @@ from typing import (  # noqa
     Iterator,
     List,
     Mapping,
+    NewType,
     Optional,
     Pattern,
-    Set,
     Tuple,
     Type,
     TypeVar,
@@ -40,11 +40,10 @@ from typing import (  # noqa
     cast,
 )
 from urllib.parse import quote
-from urllib.request import getproxies
+from urllib.request import getproxies, proxy_bypass
 
 import async_timeout
-import attr
-from multidict import MultiDict, MultiDictProxy
+from multidict import CIMultiDict, MultiDict, MultiDictProxy
 from typing_extensions import Protocol, final
 from yarl import URL
 
@@ -52,15 +51,10 @@ from . import hdrs
 from .log import client_logger
 from .typedefs import PathLike  # noqa
 
-__all__ = ("BasicAuth", "ChainMapProxy")
+__all__ = ("BasicAuth", "ChainMapProxy", "ETag")
 
-PY_37 = sys.version_info >= (3, 7)
 PY_38 = sys.version_info >= (3, 8)
 
-if not PY_37:
-    import idna_ssl
-
-    idna_ssl.patch_match_hostname()
 
 try:
     from typing import ContextManager
@@ -68,22 +62,12 @@ except ImportError:
     from typing_extensions import ContextManager
 
 
-def all_tasks(
-    loop: Optional[asyncio.AbstractEventLoop] = None,
-) -> Set["asyncio.Task[Any]"]:
-    tasks = list(asyncio.Task.all_tasks(loop))
-    return {t for t in tasks if not t.done()}
-
-
-if PY_37:
-    all_tasks = getattr(asyncio, "all_tasks")  # noqa
-
-
 _T = TypeVar("_T")
 _S = TypeVar("_S")
 
+_SENTINEL = NewType("_SENTINEL", object)
 
-sentinel = object()  # type: Any
+sentinel: _SENTINEL = _SENTINEL(object())
 NO_EXTENSIONS = bool(os.environ.get("AIOHTTP_NO_EXTENSIONS"))  # type: bool
 
 # N.B. sys.flags.dev_mode is available on Python 3.7+, use getattr
@@ -130,7 +114,7 @@ if PY_38:
     iscoroutinefunction = asyncio.iscoroutinefunction
 else:
 
-    def iscoroutinefunction(func: Callable[..., Any]) -> bool:
+    def iscoroutinefunction(func: Any) -> bool:
         while isinstance(func, functools.partial):
             func = func.func
         return asyncio.iscoroutinefunction(func)
@@ -248,7 +232,7 @@ def netrc_from_env() -> Optional[netrc.netrc]:
     return None
 
 
-@attr.s(auto_attribs=True, frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True)
 class ProxyInfo:
     proxy: URL
     proxy_auth: Optional[BasicAuth]
@@ -285,40 +269,21 @@ def proxies_from_env() -> Dict[str, ProxyInfo]:
     return ret
 
 
-def current_task(
-    loop: Optional[asyncio.AbstractEventLoop] = None,
-) -> "Optional[asyncio.Task[Any]]":
-    if PY_37:
-        return asyncio.current_task(loop=loop)
+def get_env_proxy_for_url(url: URL) -> Tuple[URL, Optional[BasicAuth]]:
+    """Get a permitted proxy for the given URL from the env."""
+    if url.host is not None and proxy_bypass(url.host):
+        raise LookupError(f"Proxying is disallowed for `{url.host!r}`")
+
+    proxies_in_env = proxies_from_env()
+    try:
+        proxy_info = proxies_in_env[url.scheme]
+    except KeyError:
+        raise LookupError(f"No proxies found for `{url!s}` in the env")
     else:
-        return asyncio.Task.current_task(loop=loop)
+        return proxy_info.proxy, proxy_info.proxy_auth
 
 
-if sys.version_info >= (3, 7):
-    create_task = asyncio.create_task
-else:
-
-    def create_task(coro: Awaitable[_T]) -> "asyncio.Task[_T]":
-        loop = asyncio.get_event_loop()
-        return loop.create_task(coro)
-
-
-def get_running_loop() -> asyncio.AbstractEventLoop:
-    loop = asyncio.get_event_loop()
-    if not loop.is_running():
-        raise RuntimeError("The object should be created within an async function")
-    return loop
-
-
-def isasyncgenfunction(obj: Any) -> bool:
-    func = getattr(inspect, "isasyncgenfunction", None)
-    if func is not None:
-        return func(obj)
-    else:
-        return False
-
-
-@attr.s(auto_attribs=True, frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True)
 class MimeType:
     type: str
     subtype: str
@@ -381,13 +346,40 @@ def guess_filename(obj: Any, default: Optional[str] = None) -> Optional[str]:
     return default
 
 
+not_qtext_re = re.compile(r"[^\041\043-\133\135-\176]")
+QCONTENT = {chr(i) for i in range(0x20, 0x7F)} | {"\t"}
+
+
+def quoted_string(content: str) -> str:
+    """Return 7-bit content as quoted-string.
+
+    Format content into a quoted-string as defined in RFC5322 for
+    Internet Message Format. Notice that this is not the 8-bit HTTP
+    format, but the 7-bit email format. Content must be in usascii or
+    a ValueError is raised.
+    """
+    if not (QCONTENT > set(content)):
+        raise ValueError(f"bad content for quoted-string {content!r}")
+    return not_qtext_re.sub(lambda x: "\\" + x.group(0), content)
+
+
 def content_disposition_header(
-    disptype: str, quote_fields: bool = True, **params: str
+    disptype: str, quote_fields: bool = True, _charset: str = "utf-8", **params: str
 ) -> str:
-    """Sets ``Content-Disposition`` header.
+    """Sets ``Content-Disposition`` header for MIME.
+
+    This is the MIME payload Content-Disposition header from RFC 2183
+    and RFC 7579 section 4.2, not the HTTP Content-Disposition from
+    RFC 6266.
 
     disptype is a disposition type: inline, attachment, form-data.
     Should be valid extension token (see RFC 2183)
+
+    quote_fields performs value quoting to 7-bit MIME headers
+    according to RFC 7578. Set to quote_fields to False if recipient
+    can take 8-bit file names and field values.
+
+    _charset specifies the charset to use when quote_fields is True.
 
     params is a dict with disposition params.
     """
@@ -402,10 +394,23 @@ def content_disposition_header(
                 raise ValueError(
                     "bad content disposition parameter" " {!r}={!r}".format(key, val)
                 )
-            qval = quote(val, "") if quote_fields else val
-            lparams.append((key, '"%s"' % qval))
-            if key == "filename":
-                lparams.append(("filename*", "utf-8''" + qval))
+            if quote_fields:
+                if key.lower() == "filename":
+                    qval = quote(val, "", encoding=_charset)
+                    lparams.append((key, '"%s"' % qval))
+                else:
+                    try:
+                        qval = quoted_string(val)
+                    except ValueError:
+                        qval = "".join(
+                            (_charset, "''", quote(val, "", encoding=_charset))
+                        )
+                        lparams.append((key + "*", qval))
+                    else:
+                        lparams.append((key, '"%s"' % qval))
+            else:
+                qval = val.replace("\\", "\\\\").replace('"', '\\"')
+                lparams.append((key, '"%s"' % qval))
         sparams = "; ".join("=".join(pair) for pair in lparams)
         value = "; ".join((value, sparams))
     return value
@@ -419,8 +424,8 @@ def is_expected_content_type(
     return expected_content_type in response_content_type
 
 
-class _TSelf(Protocol):
-    _cache: Dict[str, Any]
+class _TSelf(Protocol, Generic[_T]):
+    _cache: Dict[str, _T]
 
 
 class reify(Generic[_T]):
@@ -437,7 +442,7 @@ class reify(Generic[_T]):
         self.__doc__ = wrapped.__doc__
         self.name = wrapped.__name__
 
-    def __get__(self, inst: _TSelf, owner: Optional[Type[Any]] = None) -> _T:
+    def __get__(self, inst: _TSelf[_T], owner: Optional[Type[Any]] = None) -> _T:
         try:
             try:
                 return inst._cache[self.name]
@@ -450,7 +455,7 @@ class reify(Generic[_T]):
                 return self
             raise
 
-    def __set__(self, inst: _TSelf, value: _T) -> None:
+    def __set__(self, inst: _TSelf[_T], value: _T) -> None:
         raise AttributeError("reified property is read-only")
 
 
@@ -460,7 +465,7 @@ try:
     from ._helpers import reify as reify_c
 
     if not NO_EXTENSIONS:
-        reify = reify_c  # type: ignore
+        reify = reify_c  # type: ignore[misc,assignment]
 except ImportError:
     pass
 
@@ -556,7 +561,7 @@ def rfc822_formatted_time() -> str:
     return _cached_formatted_datetime
 
 
-def _weakref_handle(info):  # type: ignore
+def _weakref_handle(info: "Tuple[weakref.ref[object], str]") -> None:
     ref, name = info
     ob = ref()
     if ob is not None:
@@ -564,21 +569,27 @@ def _weakref_handle(info):  # type: ignore
             getattr(ob, name)()
 
 
-def weakref_handle(ob, name, timeout, loop):  # type: ignore
+def weakref_handle(
+    ob: object, name: str, timeout: float, loop: asyncio.AbstractEventLoop
+) -> Optional[asyncio.TimerHandle]:
     if timeout is not None and timeout > 0:
         when = loop.time() + timeout
         if timeout >= 5:
             when = ceil(when)
 
         return loop.call_at(when, _weakref_handle, (weakref.ref(ob), name))
+    return None
 
 
-def call_later(cb, timeout, loop):  # type: ignore
+def call_later(
+    cb: Callable[[], Any], timeout: float, loop: asyncio.AbstractEventLoop
+) -> Optional[asyncio.TimerHandle]:
     if timeout is not None and timeout > 0:
         when = loop.time() + timeout
         if timeout > 5:
             when = ceil(when)
         return loop.call_at(when, cb)
+    return None
 
 
 class TimeoutHandle:
@@ -591,7 +602,7 @@ class TimeoutHandle:
         self._loop = loop
         self._callbacks = (
             []
-        )  # type: List[Tuple[Callable[..., None], Tuple[Any, ...], Dict[str, Any]]]  # noqa
+        )  # type: List[Tuple[Callable[..., None], Tuple[Any, ...], Dict[str, Any]]]
 
     def register(
         self, callback: Callable[..., None], *args: Any, **kwargs: Any
@@ -653,7 +664,7 @@ class TimerContext(BaseTimerContext):
         self._cancelled = False
 
     def __enter__(self) -> BaseTimerContext:
-        task = current_task(loop=self._loop)
+        task = asyncio.current_task(loop=self._loop)
 
         if task is None:
             raise RuntimeError(
@@ -689,15 +700,15 @@ class TimerContext(BaseTimerContext):
 
 
 def ceil_timeout(delay: Optional[float]) -> async_timeout.Timeout:
-    if delay is not None and delay > 0:
-        loop = get_running_loop()
-        now = loop.time()
-        when = now + delay
-        if delay > 5:
-            when = ceil(when)
-        return async_timeout.timeout_at(when)
-    else:
+    if delay is None or delay <= 0:
         return async_timeout.timeout(None)
+
+    loop = asyncio.get_running_loop()
+    now = loop.time()
+    when = now + delay
+    if delay > 5:
+        when = ceil(when)
+    return async_timeout.timeout_at(when)
 
 
 class HeadersMixin:
@@ -705,9 +716,10 @@ class HeadersMixin:
     __slots__ = ("_content_type", "_content_dict", "_stored_content_type")
 
     def __init__(self) -> None:
+        super().__init__()
         self._content_type = None  # type: Optional[str]
         self._content_dict = None  # type: Optional[Dict[str, str]]
-        self._stored_content_type = sentinel
+        self._stored_content_type: Union[str, _SENTINEL] = sentinel
 
     def _parse_content_type(self, raw: str) -> None:
         self._stored_content_type = raw
@@ -721,23 +733,25 @@ class HeadersMixin:
     @property
     def content_type(self) -> str:
         """The value of content part for Content-Type HTTP header."""
-        raw = self._headers.get(hdrs.CONTENT_TYPE)  # type: ignore
+        raw = self._headers.get(hdrs.CONTENT_TYPE)  # type: ignore[attr-defined]
         if self._stored_content_type != raw:
             self._parse_content_type(raw)
-        return self._content_type  # type: ignore
+        return self._content_type  # type: ignore[return-value]
 
     @property
     def charset(self) -> Optional[str]:
         """The value of charset part for Content-Type HTTP header."""
-        raw = self._headers.get(hdrs.CONTENT_TYPE)  # type: ignore
+        raw = self._headers.get(hdrs.CONTENT_TYPE)  # type: ignore[attr-defined]
         if self._stored_content_type != raw:
             self._parse_content_type(raw)
-        return self._content_dict.get("charset")  # type: ignore
+        return self._content_dict.get("charset")  # type: ignore[union-attr]
 
     @property
     def content_length(self) -> Optional[int]:
         """The value of Content-Length HTTP header."""
-        content_length = self._headers.get(hdrs.CONTENT_LENGTH)  # type: ignore
+        content_length = self._headers.get(  # type: ignore[attr-defined]
+            hdrs.CONTENT_LENGTH
+        )
 
         if content_length is not None:
             return int(content_length)
@@ -781,7 +795,7 @@ class ChainMapProxy(Mapping[str, Any]):
 
     def __len__(self) -> int:
         # reuses stored hash values if possible
-        return len(set().union(*self._maps))  # type: ignore
+        return len(set().union(*self._maps))  # type: ignore[arg-type]
 
     def __iter__(self) -> Iterator[str]:
         d = {}  # type: Dict[str, Any]
@@ -799,3 +813,114 @@ class ChainMapProxy(Mapping[str, Any]):
     def __repr__(self) -> str:
         content = ", ".join(map(repr, self._maps))
         return f"ChainMapProxy({content})"
+
+
+class CookieMixin:
+    def __init__(self) -> None:
+        super().__init__()
+        self._cookies = SimpleCookie()  # type: SimpleCookie[str]
+
+    @property
+    def cookies(self) -> "SimpleCookie[str]":
+        return self._cookies
+
+    def set_cookie(
+        self,
+        name: str,
+        value: str,
+        *,
+        expires: Optional[str] = None,
+        domain: Optional[str] = None,
+        max_age: Optional[Union[int, str]] = None,
+        path: str = "/",
+        secure: Optional[bool] = None,
+        httponly: Optional[bool] = None,
+        version: Optional[str] = None,
+        samesite: Optional[str] = None,
+    ) -> None:
+        """Set or update response cookie.
+
+        Sets new cookie or updates existent with new value.
+        Also updates only those params which are not None.
+        """
+
+        old = self._cookies.get(name)
+        if old is not None and old.coded_value == "":
+            # deleted cookie
+            self._cookies.pop(name, None)
+
+        self._cookies[name] = value
+        c = self._cookies[name]
+
+        if expires is not None:
+            c["expires"] = expires
+        elif c.get("expires") == "Thu, 01 Jan 1970 00:00:00 GMT":
+            del c["expires"]
+
+        if domain is not None:
+            c["domain"] = domain
+
+        if max_age is not None:
+            c["max-age"] = str(max_age)
+        elif "max-age" in c:
+            del c["max-age"]
+
+        c["path"] = path
+
+        if secure is not None:
+            c["secure"] = secure
+        if httponly is not None:
+            c["httponly"] = httponly
+        if version is not None:
+            c["version"] = version
+        if samesite is not None:
+            c["samesite"] = samesite
+
+    def del_cookie(
+        self, name: str, *, domain: Optional[str] = None, path: str = "/"
+    ) -> None:
+        """Delete cookie.
+
+        Creates new empty expired cookie.
+        """
+        # TODO: do we need domain/path here?
+        self._cookies.pop(name, None)
+        self.set_cookie(
+            name,
+            "",
+            max_age=0,
+            expires="Thu, 01 Jan 1970 00:00:00 GMT",
+            domain=domain,
+            path=path,
+        )
+
+
+def populate_with_cookies(
+    headers: "CIMultiDict[str]", cookies: "SimpleCookie[str]"
+) -> None:
+    for cookie in cookies.values():
+        value = cookie.output(header="")[1:]
+        headers.add(hdrs.SET_COOKIE, value)
+
+
+# https://tools.ietf.org/html/rfc7232#section-2.3
+_ETAGC = r"[!#-}\x80-\xff]+"
+_ETAGC_RE = re.compile(_ETAGC)
+_QUOTED_ETAG = fr'(W/)?"({_ETAGC})"'
+QUOTED_ETAG_RE = re.compile(_QUOTED_ETAG)
+LIST_QUOTED_ETAG_RE = re.compile(fr"({_QUOTED_ETAG})(?:\s*,\s*|$)|(.)")
+
+ETAG_ANY = "*"
+
+
+@dataclasses.dataclass(frozen=True)
+class ETag:
+    value: str
+    is_weak: bool = False
+
+
+def validate_etag_value(value: str) -> None:
+    if value != ETAG_ANY and not _ETAGC_RE.fullmatch(value):
+        raise ValueError(
+            f"Value {value!r} is not a valid etag. Maybe it contains '\"'?"
+        )

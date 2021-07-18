@@ -1,5 +1,6 @@
 import asyncio
 import codecs
+import dataclasses
 import functools
 import io
 import re
@@ -9,7 +10,7 @@ import warnings
 from hashlib import md5, sha1, sha256
 from http.cookies import CookieError, Morsel, SimpleCookie
 from types import MappingProxyType, TracebackType
-from typing import (  # noqa
+from typing import (
     TYPE_CHECKING,
     Any,
     Dict,
@@ -23,7 +24,6 @@ from typing import (  # noqa
     cast,
 )
 
-import attr
 from multidict import CIMultiDict, CIMultiDictProxy, MultiDict, MultiDictProxy
 from yarl import URL
 
@@ -38,7 +38,7 @@ from .client_exceptions import (
     ServerFingerprintMismatch,
 )
 from .formdata import FormData
-from .helpers import (  # noqa
+from .helpers import (
     BaseTimerContext,
     BasicAuth,
     HeadersMixin,
@@ -49,8 +49,9 @@ from .helpers import (  # noqa
     set_result,
 )
 from .http import SERVER_SOFTWARE, HttpVersion10, HttpVersion11, StreamWriter
+from .http_parser import HAS_BROTLI
 from .log import client_logger
-from .streams import StreamReader  # noqa
+from .streams import StreamReader
 from .typedefs import (
     DEFAULT_JSON_DECODER,
     JSONDecoder,
@@ -63,41 +64,41 @@ try:
     import ssl
     from ssl import SSLContext
 except ImportError:  # pragma: no cover
-    ssl = None  # type: ignore
-    SSLContext = object  # type: ignore
+    ssl = None  # type: ignore[assignment]
+    SSLContext = object  # type: ignore[misc,assignment]
 
 try:
     import cchardet as chardet
 except ImportError:  # pragma: no cover
-    import chardet  # type: ignore
+    import chardet  # type: ignore[no-redef]
 
 
 __all__ = ("ClientRequest", "ClientResponse", "RequestInfo", "Fingerprint")
 
 
 if TYPE_CHECKING:  # pragma: no cover
-    from .client import ClientSession  # noqa
-    from .connector import Connection  # noqa
-    from .tracing import Trace  # noqa
+    from .client import ClientSession
+    from .connector import Connection
+    from .tracing import Trace
 
 
-@attr.s(auto_attribs=True, frozen=True, slots=True)
+def _gen_default_accept_encoding() -> str:
+    return "gzip, deflate, br" if HAS_BROTLI else "gzip, deflate"
+
+
+@dataclasses.dataclass(frozen=True)
 class ContentDisposition:
     type: Optional[str]
     parameters: "MappingProxyType[str, str]"
     filename: Optional[str]
 
 
-@attr.s(auto_attribs=True, frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True)
 class RequestInfo:
     url: URL
     method: str
     headers: "CIMultiDictProxy[str]"
-    real_url: URL = attr.ib()
-
-    @real_url.default
-    def real_url_default(self) -> URL:
-        return self.url
+    real_url: URL
 
 
 class Fingerprint:
@@ -140,7 +141,7 @@ else:  # pragma: no cover
     SSL_ALLOWED_TYPES = type(None)
 
 
-@attr.s(auto_attribs=True, slots=True, frozen=True)
+@dataclasses.dataclass(frozen=True)
 class ConnectionKey:
     # the key should contain an information about used proxy / TLS
     # to prevent reusing wrong connections from a pool
@@ -165,7 +166,7 @@ class ClientRequest:
 
     DEFAULT_HEADERS = {
         hdrs.ACCEPT: "*/*",
-        hdrs.ACCEPT_ENCODING: "gzip, deflate",
+        hdrs.ACCEPT_ENCODING: _gen_default_accept_encoding(),
     }
 
     body = b""
@@ -264,7 +265,7 @@ class ClientRequest:
         if proxy_headers:
             h = hash(
                 tuple((k, v) for k, v in proxy_headers.items())
-            )  # type: Optional[int]  # noqa
+            )  # type: Optional[int]
         else:
             h = None
         return ConnectionKey(
@@ -332,9 +333,9 @@ class ClientRequest:
 
         if headers:
             if isinstance(headers, (dict, MultiDictProxy, MultiDict)):
-                headers = headers.items()  # type: ignore
+                headers = headers.items()  # type: ignore[assignment]
 
-            for key, value in headers:  # type: ignore
+            for key, value in headers:  # type: ignore[misc]
                 # A special case for Host header
                 if key.lower() == "host":
                     self.headers[key] = value
@@ -346,7 +347,7 @@ class ClientRequest:
             (hdr, None) for hdr in sorted(skip_auto_headers)
         )
         used_headers = self.headers.copy()
-        used_headers.extend(self.skip_auto_headers)  # type: ignore
+        used_headers.extend(self.skip_auto_headers)  # type: ignore[arg-type]
 
         for hdr, val in self.DEFAULT_HEADERS.items():
             if hdr not in used_headers:
@@ -368,7 +369,7 @@ class ClientRequest:
         if isinstance(cookies, Mapping):
             iter_cookies = cookies.items()
         else:
-            iter_cookies = cookies  # type: ignore
+            iter_cookies = cookies  # type: ignore[assignment]
         for name, value in iter_cookies:
             if isinstance(value, Morsel):
                 # Preserve coded_value
@@ -376,7 +377,7 @@ class ClientRequest:
                 mrsl_val.set(value.key, value.value, value.coded_value)
                 c[name] = mrsl_val
             else:
-                c[name] = value  # type: ignore
+                c[name] = value  # type: ignore[assignment]
 
         self.headers[hdrs.COOKIE] = c.output(header="", sep=";").strip()
 
@@ -518,10 +519,10 @@ class ClientRequest:
                 await self.body.write(writer)
             else:
                 if isinstance(self.body, (bytes, bytearray)):
-                    self.body = (self.body,)  # type: ignore
+                    self.body = (self.body,)  # type: ignore[assignment]
 
                 for chunk in self.body:
-                    await writer.write(chunk)  # type: ignore
+                    await writer.write(chunk)  # type: ignore[arg-type]
 
             await writer.write_eof()
         except OSError as exc:
@@ -805,7 +806,7 @@ class ClientResponse(HeadersMixin):
 
                 link.add(key, value)
 
-            key = link.get("rel", url)  # type: ignore
+            key = link.get("rel", url)  # type: ignore[assignment]
 
             link.add("url", self.url.join(URL(url)))
 
@@ -823,7 +824,8 @@ class ClientResponse(HeadersMixin):
             while True:
                 # read response
                 try:
-                    message, payload = await self._protocol.read()  # type: ignore  # noqa
+                    protocol = self._protocol
+                    message, payload = await protocol.read()  # type: ignore[union-attr]
                 except http.HttpProcessingError as exc:
                     raise ClientResponseError(
                         self.request_info,
@@ -922,14 +924,10 @@ class ClientResponse(HeadersMixin):
         This is **not** a check for ``200 OK`` but a check that the response
         status is under 400.
         """
-        try:
-            self.raise_for_status()
-        except ClientResponseError:
-            return False
-        return True
+        return 400 > self.status
 
     def raise_for_status(self) -> None:
-        if 400 <= self.status:
+        if not self.ok:
             # reason should always be not None for a started response
             assert self.reason is not None
             self.release()
@@ -1014,7 +1012,7 @@ class ClientResponse(HeadersMixin):
         if encoding is None:
             encoding = self.get_encoding()
 
-        return self._body.decode(encoding, errors=errors)  # type: ignore
+        return self._body.decode(encoding, errors=errors)  # type: ignore[union-attr]
 
     async def json(
         self,
@@ -1042,7 +1040,7 @@ class ClientResponse(HeadersMixin):
         if encoding is None:
             encoding = self.get_encoding()
 
-        return loads(self._body.decode(encoding))  # type: ignore
+        return loads(self._body.decode(encoding))  # type: ignore[union-attr]
 
     async def __aenter__(self) -> "ClientResponse":
         return self

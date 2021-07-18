@@ -1,7 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Sized
-from http.cookies import BaseCookie, Morsel  # noqa
+from http.cookies import BaseCookie, Morsel
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -15,7 +15,7 @@ from typing import (
     Tuple,
 )
 
-from multidict import CIMultiDict  # noqa
+from multidict import CIMultiDict
 from yarl import URL
 
 from .typedefs import LooseCookies
@@ -133,12 +133,19 @@ else:
     IterableBase = Iterable
 
 
+ClearCookiePredicate = Callable[["Morsel[str]"], bool]
+
+
 class AbstractCookieJar(Sized, IterableBase):
     """Abstract Cookie Jar."""
 
     @abstractmethod
-    def clear(self) -> None:
-        """Clear all cookies."""
+    def clear(self, predicate: Optional[ClearCookiePredicate] = None) -> None:
+        """Clear all cookies if no predicate is passed."""
+
+    @abstractmethod
+    def clear_domain(self, domain: str) -> None:
+        """Clear all cookies for domain and all subdomains."""
 
     @abstractmethod
     def update_cookies(self, cookies: LooseCookies, response_url: URL = URL()) -> None:

@@ -2,7 +2,7 @@
 Async http client/server framework
 ==================================
 
-.. image:: https://raw.githubusercontent.com/aio-libs/aiohttp/master/docs/_static/aiohttp-icon-128x128.png
+.. image:: https://raw.githubusercontent.com/aio-libs/aiohttp/master/docs/aiohttp-plain.svg
    :height: 64px
    :width: 64px
    :alt: aiohttp logo
@@ -20,6 +20,10 @@ Async http client/server framework
 .. image:: https://badge.fury.io/py/aiohttp.svg
    :target: https://pypi.org/project/aiohttp
    :alt: Latest PyPI package version
+
+.. image:: https://img.shields.io/pypi/dm/aiohttp
+   :target: https://pypistats.org/packages/aiohttp
+   :alt: Downloads count
 
 .. image:: https://readthedocs.org/projects/aiohttp/badge/?version=latest
    :target: https://docs.aiohttp.org/
@@ -158,7 +162,7 @@ Please add *aiohttp* tag to your question there.
 Requirements
 ============
 
-- Python >= 3.6
+- Python >= 3.7
 - async-timeout_
 - attrs_
 - chardet_

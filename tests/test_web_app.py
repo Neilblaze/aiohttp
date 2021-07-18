@@ -1,10 +1,13 @@
+# type: ignore
 import asyncio
+from typing import Any
 from unittest import mock
 
 import pytest
 
 from aiohttp import log, web
 from aiohttp.test_utils import make_mocked_coro
+from aiohttp.typedefs import Handler
 
 
 async def test_app_ctor() -> None:
@@ -135,7 +138,7 @@ def test_app_run_middlewares() -> None:
     root.freeze()
     assert root._run_middlewares is False
 
-    async def middleware(request, handler):
+    async def middleware(request, handler: Handler):
         return await handler(request)
 
     root = web.Application(middlewares=[middleware])
@@ -250,6 +253,32 @@ async def test_cleanup_ctx_exception_on_cleanup() -> None:
     assert out == ["pre_1", "pre_2", "pre_3", "post_3", "post_2", "post_1"]
 
 
+async def test_cleanup_ctx_cleanup_after_exception() -> None:
+    app = web.Application()
+    ctx_state = None
+
+    async def success_ctx(app):
+        nonlocal ctx_state
+        ctx_state = "START"
+        yield
+        ctx_state = "CLEAN"
+
+    async def fail_ctx(app):
+        raise Exception()
+        yield
+
+    app.cleanup_ctx.append(success_ctx)
+    app.cleanup_ctx.append(fail_ctx)
+    runner = web.AppRunner(app)
+    try:
+        with pytest.raises(Exception):
+            await runner.setup()
+    finally:
+        await runner.cleanup()
+
+    assert ctx_state == "CLEAN"
+
+
 async def test_cleanup_ctx_exception_on_cleanup_multiple() -> None:
     app = web.Application()
     out = []
@@ -302,7 +331,7 @@ async def test_cleanup_ctx_multiple_yields() -> None:
     assert out == ["pre_1", "post_1"]
 
 
-async def test_subapp_chained_config_dict_visibility(aiohttp_client) -> None:
+async def test_subapp_chained_config_dict_visibility(aiohttp_client: Any) -> None:
     async def main_handler(request):
         assert request.config_dict["key1"] == "val1"
         assert "key2" not in request.config_dict
@@ -330,7 +359,7 @@ async def test_subapp_chained_config_dict_visibility(aiohttp_client) -> None:
     assert resp.status == 201
 
 
-async def test_subapp_chained_config_dict_overriding(aiohttp_client) -> None:
+async def test_subapp_chained_config_dict_overriding(aiohttp_client: Any) -> None:
     async def main_handler(request):
         assert request.config_dict["key"] == "val1"
         return web.Response(status=200)
@@ -356,7 +385,7 @@ async def test_subapp_chained_config_dict_overriding(aiohttp_client) -> None:
     assert resp.status == 201
 
 
-async def test_subapp_on_startup(aiohttp_client) -> None:
+async def test_subapp_on_startup(aiohttp_client: Any) -> None:
 
     subapp = web.Application()
 
@@ -430,14 +459,14 @@ async def test_subapp_on_startup(aiohttp_client) -> None:
     assert cleanup_called
 
 
-def test_app_iter():
+def test_app_iter() -> None:
     app = web.Application()
     app["a"] = "1"
     app["b"] = "2"
     assert sorted(list(app)) == ["a", "b"]
 
 
-def test_app_forbid_nonslot_attr():
+def test_app_forbid_nonslot_attr() -> None:
     app = web.Application()
     with pytest.raises(AttributeError):
         app.unknow_attr

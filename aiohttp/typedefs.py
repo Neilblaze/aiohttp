@@ -1,6 +1,15 @@
 import json
-import os  # noqa
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping, Tuple, Union
+import os
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Awaitable,
+    Callable,
+    Iterable,
+    Mapping,
+    Tuple,
+    Union,
+)
 
 from multidict import CIMultiDict, CIMultiDictProxy, MultiDict, MultiDictProxy, istr
 from yarl import URL
@@ -13,7 +22,9 @@ if TYPE_CHECKING:  # pragma: no cover
     _CIMultiDictProxy = CIMultiDictProxy[str]
     _MultiDict = MultiDict[str]
     _MultiDictProxy = MultiDictProxy[str]
-    from http.cookies import BaseCookie, Morsel  # noqa
+    from http.cookies import BaseCookie, Morsel
+
+    from .web import Request, StreamResponse
 else:
     _CIMultiDict = CIMultiDict
     _CIMultiDictProxy = CIMultiDictProxy
@@ -37,5 +48,6 @@ LooseCookies = Union[
     "BaseCookie[str]",
 ]
 
+Handler = Callable[["Request"], Awaitable["StreamResponse"]]
 
 PathLike = Union[str, "os.PathLike[str]"]

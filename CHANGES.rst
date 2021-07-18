@@ -14,6 +14,106 @@ Changelog
 
 .. towncrier release notes start
 
+3.7.4.post0 (2021-03-06)
+========================
+
+Misc
+----
+
+- Bumped upper bound of the ``chardet`` runtime dependency
+  to allow their v4.0 version stream.
+  `#5366 <https://github.com/aio-libs/aiohttp/issues/5366>`_
+
+
+----
+
+
+3.7.4 (2021-02-25)
+==================
+
+Bugfixes
+--------
+
+- **(SECURITY BUG)** Started preventing open redirects in the
+  ``aiohttp.web.normalize_path_middleware`` middleware. For
+  more details, see
+  https://github.com/aio-libs/aiohttp/security/advisories/GHSA-v6wp-4m6f-gcjg.
+
+  Thanks to `Beast Glatisant <https://github.com/g147>`__ for
+  finding the first instance of this issue and `Jelmer Vernooĳ
+  <https://jelmer.uk/>`__ for reporting and tracking it down
+  in aiohttp.
+  `#5497 <https://github.com/aio-libs/aiohttp/issues/5497>`_
+- Fix interpretation difference of the pure-Python and the Cython-based
+  HTTP parsers construct a ``yarl.URL`` object for HTTP request-target.
+
+  Before this fix, the Python parser would turn the URI's absolute-path
+  for ``//some-path`` into ``/`` while the Cython code preserved it as
+  ``//some-path``. Now, both do the latter.
+  `#5498 <https://github.com/aio-libs/aiohttp/issues/5498>`_
+
+
+----
+
+
+3.7.3 (2020-11-18)
+==================
+
+Features
+--------
+
+- Use Brotli instead of brotlipy
+  `#3803 <https://github.com/aio-libs/aiohttp/issues/3803>`_
+- Made exceptions pickleable. Also changed the repr of some exceptions.
+  `#4077 <https://github.com/aio-libs/aiohttp/issues/4077>`_
+
+
+Bugfixes
+--------
+
+- Raise a ClientResponseError instead of an AssertionError for a blank
+  HTTP Reason Phrase.
+  `#3532 <https://github.com/aio-libs/aiohttp/issues/3532>`_
+- Fix ``web_middlewares.normalize_path_middleware`` behavior for patch without slash.
+  `#3669 <https://github.com/aio-libs/aiohttp/issues/3669>`_
+- Fix overshadowing of overlapped sub-applications prefixes.
+  `#3701 <https://github.com/aio-libs/aiohttp/issues/3701>`_
+- Make `BaseConnector.close()` a coroutine and wait until the client closes all connections. Drop deprecated "with Connector():" syntax.
+  `#3736 <https://github.com/aio-libs/aiohttp/issues/3736>`_
+- Reset the ``sock_read`` timeout each time data is received for a ``aiohttp.client`` response.
+  `#3808 <https://github.com/aio-libs/aiohttp/issues/3808>`_
+- Fixed type annotation for add_view method of UrlDispatcher to accept any subclass of View
+  `#3880 <https://github.com/aio-libs/aiohttp/issues/3880>`_
+- Fixed querying the address families from DNS that the current host supports.
+  `#5156 <https://github.com/aio-libs/aiohttp/issues/5156>`_
+- Change return type of MultipartReader.__aiter__() and BodyPartReader.__aiter__() to AsyncIterator.
+  `#5163 <https://github.com/aio-libs/aiohttp/issues/5163>`_
+- Provide x86 Windows wheels.
+  `#5230 <https://github.com/aio-libs/aiohttp/issues/5230>`_
+
+
+Improved Documentation
+----------------------
+
+- Add documentation for ``aiohttp.web.FileResponse``.
+  `#3958 <https://github.com/aio-libs/aiohttp/issues/3958>`_
+- Removed deprecation warning in tracing example docs
+  `#3964 <https://github.com/aio-libs/aiohttp/issues/3964>`_
+- Fixed wrong "Usage" docstring of ``aiohttp.client.request``.
+  `#4603 <https://github.com/aio-libs/aiohttp/issues/4603>`_
+- Add aiohttp-pydantic to third party libraries
+  `#5228 <https://github.com/aio-libs/aiohttp/issues/5228>`_
+
+
+Misc
+----
+
+- `#4102 <https://github.com/aio-libs/aiohttp/issues/4102>`_
+
+
+----
+
+
 3.7.2 (2020-10-27)
 ==================
 

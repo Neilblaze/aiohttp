@@ -1,3 +1,4 @@
+# type: ignore
 import asyncio
 import socket
 import weakref
@@ -16,6 +17,7 @@ from aiohttp.http_parser import RawRequestMessage
 from aiohttp.streams import StreamReader
 from aiohttp.test_utils import make_mocked_request
 from aiohttp.web import HTTPRequestEntityTooLarge, HTTPUnsupportedMediaType
+from aiohttp.web_request import ETag
 
 
 @pytest.fixture
@@ -349,7 +351,7 @@ def test_single_forwarded_header() -> None:
         ('"[2001:db8:cafe::17]"', "[2001:db8:cafe::17]"),
     ],
 )
-def test_forwarded_node_identifier(forward_for_in, forward_for_out) -> None:
+def test_forwarded_node_identifier(forward_for_in: Any, forward_for_out: Any) -> None:
     header = f"for={forward_for_in}"
     req = make_mocked_request("GET", "/", headers=CIMultiDict({"Forwarded": header}))
     assert req.forwarded == ({"for": forward_for_out},)
@@ -543,7 +545,7 @@ def test_clone_headers_dict() -> None:
     assert req2.raw_headers == ((b"B", b"C"),)
 
 
-async def test_cannot_clone_after_read(protocol) -> None:
+async def test_cannot_clone_after_read(protocol: Any) -> None:
     payload = StreamReader(protocol, 2 ** 16, loop=asyncio.get_event_loop())
     payload.feed_data(b"data")
     payload.feed_eof()
@@ -553,7 +555,7 @@ async def test_cannot_clone_after_read(protocol) -> None:
         req.clone()
 
 
-async def test_make_too_big_request(protocol) -> None:
+async def test_make_too_big_request(protocol: Any) -> None:
     payload = StreamReader(protocol, 2 ** 16, loop=asyncio.get_event_loop())
     large_file = 1024 ** 2 * b"x"
     too_large_file = large_file + b"x"
@@ -566,7 +568,7 @@ async def test_make_too_big_request(protocol) -> None:
     assert err.value.status_code == 413
 
 
-async def test_request_with_wrong_content_type_encoding(protocol) -> None:
+async def test_request_with_wrong_content_type_encoding(protocol: Any) -> None:
     payload = StreamReader(protocol, 2 ** 16, loop=asyncio.get_event_loop())
     payload.feed_data(b"{}")
     payload.feed_eof()
@@ -578,7 +580,7 @@ async def test_request_with_wrong_content_type_encoding(protocol) -> None:
     assert err.value.status_code == 415
 
 
-async def test_make_too_big_request_same_size_to_max(protocol) -> None:
+async def test_make_too_big_request_same_size_to_max(protocol: Any) -> None:
     payload = StreamReader(protocol, 2 ** 16, loop=asyncio.get_event_loop())
     large_file = 1024 ** 2 * b"x"
     payload.feed_data(large_file)
@@ -589,7 +591,7 @@ async def test_make_too_big_request_same_size_to_max(protocol) -> None:
     assert resp_text == large_file
 
 
-async def test_make_too_big_request_adjust_limit(protocol) -> None:
+async def test_make_too_big_request_adjust_limit(protocol: Any) -> None:
     payload = StreamReader(protocol, 2 ** 16, loop=asyncio.get_event_loop())
     large_file = 1024 ** 2 * b"x"
     too_large_file = large_file + b"x"
@@ -601,7 +603,7 @@ async def test_make_too_big_request_adjust_limit(protocol) -> None:
     assert len(txt) == 1024 ** 2 + 1
 
 
-async def test_multipart_formdata(protocol) -> None:
+async def test_multipart_formdata(protocol: Any) -> None:
     payload = StreamReader(protocol, 2 ** 16, loop=asyncio.get_event_loop())
     payload.feed_data(
         b"-----------------------------326931944431359\r\n"
@@ -625,7 +627,7 @@ async def test_multipart_formdata(protocol) -> None:
     assert dict(result) == {"a": "b", "c": "d"}
 
 
-async def test_multipart_formdata_file(protocol) -> None:
+async def test_multipart_formdata_file(protocol: Any) -> None:
     # Make sure file uploads work, even without a content type
     payload = StreamReader(protocol, 2 ** 16, loop=asyncio.get_event_loop())
     payload.feed_data(
@@ -647,8 +649,10 @@ async def test_multipart_formdata_file(protocol) -> None:
     content = result["a_file"].file.read()
     assert content == b"\ff"
 
+    req._finish()
 
-async def test_make_too_big_request_limit_None(protocol) -> None:
+
+async def test_make_too_big_request_limit_None(protocol: Any) -> None:
     payload = StreamReader(protocol, 2 ** 16, loop=asyncio.get_event_loop())
     large_file = 1024 ** 2 * b"x"
     too_large_file = large_file + b"x"
@@ -760,7 +764,7 @@ def test_eq() -> None:
     assert req1 == req1
 
 
-async def test_json(aiohttp_client) -> None:
+async def test_json(aiohttp_client: Any) -> None:
     async def handler(request):
         body_text = await request.text()
         assert body_text == '{"some": "data"}'
@@ -778,7 +782,7 @@ async def test_json(aiohttp_client) -> None:
         assert 200 == resp.status
 
 
-async def test_json_invalid_content_type(aiohttp_client) -> None:
+async def test_json_invalid_content_type(aiohttp_client: Any) -> None:
     async def handler(request):
         body_text = await request.text()
         assert body_text == '{"some": "data"}'
@@ -809,7 +813,7 @@ def test_weakref_creation() -> None:
     raises=ServerDisconnectedError,
     reason="see https://github.com/aio-libs/aiohttp/issues/4572",
 )
-async def test_handler_return_type(aiohttp_client) -> None:
+async def test_handler_return_type(aiohttp_client: Any) -> None:
     async def invalid_handler_1(request):
         return 1
 
@@ -819,3 +823,47 @@ async def test_handler_return_type(aiohttp_client) -> None:
 
     async with client.get("/1") as resp:
         assert 500 == resp.status
+
+
+@pytest.mark.parametrize(
+    ["header", "header_attr"],
+    [
+        pytest.param("If-Match", "if_match"),
+        pytest.param("If-None-Match", "if_none_match"),
+    ],
+)
+@pytest.mark.parametrize(
+    ["header_val", "expected"],
+    [
+        pytest.param(
+            '"67ab43", W/"54ed21", "7892,dd"',
+            (
+                ETag(is_weak=False, value="67ab43"),
+                ETag(is_weak=True, value="54ed21"),
+                ETag(is_weak=False, value="7892,dd"),
+            ),
+        ),
+        pytest.param(
+            '"bfc1ef-5b2c2730249c88ca92d82d"',
+            (ETag(is_weak=False, value="bfc1ef-5b2c2730249c88ca92d82d"),),
+        ),
+        pytest.param(
+            '"valid-tag", "also-valid-tag",somegarbage"last-tag"',
+            (
+                ETag(is_weak=False, value="valid-tag"),
+                ETag(is_weak=False, value="also-valid-tag"),
+            ),
+        ),
+        pytest.param(
+            '"ascii", "это точно не ascii", "ascii again"',
+            (ETag(is_weak=False, value="ascii"),),
+        ),
+        pytest.param(
+            "*",
+            (ETag(is_weak=False, value="*"),),
+        ),
+    ],
+)
+def test_etag_headers(header, header_attr, header_val, expected) -> None:
+    req = make_mocked_request("GET", "/", headers={header: header_val})
+    assert getattr(req, header_attr) == expected

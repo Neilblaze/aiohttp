@@ -2,14 +2,16 @@
 
 import asyncio
 import base64
+import dataclasses
 import hashlib
 import json
 import os
 import sys
 import traceback
 import warnings
+from contextlib import suppress
 from types import SimpleNamespace, TracebackType
-from typing import (  # noqa
+from typing import (
     Any,
     Awaitable,
     Callable,
@@ -28,9 +30,8 @@ from typing import (  # noqa
     Union,
 )
 
-import attr
 from multidict import CIMultiDict, MultiDict, MultiDictProxy, istr
-from typing_extensions import final
+from typing_extensions import Final, final
 from yarl import URL
 
 from . import hdrs, http, payload
@@ -76,21 +77,16 @@ from .connector import (
 )
 from .cookiejar import CookieJar
 from .helpers import (
+    _SENTINEL,
     BasicAuth,
     TimeoutHandle,
     ceil_timeout,
-    get_running_loop,
-    proxies_from_env,
+    get_env_proxy_for_url,
     sentinel,
     strip_auth_from_url,
 )
 from .http import WS_KEY, HttpVersion, WebSocketReader, WebSocketWriter
-from .http_websocket import (  # noqa
-    WSHandshakeError,
-    WSMessage,
-    ws_ext_gen,
-    ws_ext_parse,
-)
+from .http_websocket import WSHandshakeError, WSMessage, ws_ext_gen, ws_ext_parse
 from .streams import FlowControlDataQueue
 from .tracing import Trace, TraceConfig
 from .typedefs import JSONEncoder, LooseCookies, LooseHeaders, StrOrURL
@@ -138,10 +134,10 @@ __all__ = (
 try:
     from ssl import SSLContext
 except ImportError:  # pragma: no cover
-    SSLContext = object  # type: ignore
+    SSLContext = object  # type: ignore[misc,assignment]
 
 
-@attr.s(auto_attribs=True, frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True)
 class ClientTimeout:
     total: Optional[float] = None
     connect: Optional[float] = None
@@ -163,7 +159,7 @@ class ClientTimeout:
 
 
 # 5 Minute default read timeout
-DEFAULT_TIMEOUT = ClientTimeout(total=5 * 60)
+DEFAULT_TIMEOUT: Final[ClientTimeout] = ClientTimeout(total=5 * 60)
 
 _RetType = TypeVar("_RetType")
 
@@ -206,23 +202,21 @@ class ClientSession:
         json_serialize: JSONEncoder = json.dumps,
         request_class: Type[ClientRequest] = ClientRequest,
         response_class: Type[ClientResponse] = ClientResponse,
-        ws_response_class: Type[
-            ClientWebSocketResponse
-        ] = ClientWebSocketResponse,  # noqa
+        ws_response_class: Type[ClientWebSocketResponse] = ClientWebSocketResponse,
         version: HttpVersion = http.HttpVersion11,
         cookie_jar: Optional[AbstractCookieJar] = None,
         connector_owner: bool = True,
         raise_for_status: Union[
             bool, Callable[[ClientResponse], Awaitable[None]]
-        ] = False,  # noqa
-        timeout: Union[object, ClientTimeout] = sentinel,
+        ] = False,
+        timeout: Union[_SENTINEL, ClientTimeout] = sentinel,
         auto_decompress: bool = True,
         trust_env: bool = False,
         requote_redirect_url: bool = True,
         trace_configs: Optional[List[TraceConfig]] = None,
         read_bufsize: int = 2 ** 16,
     ) -> None:
-        loop = get_running_loop()
+        loop = asyncio.get_running_loop()
 
         if connector is None:
             connector = TCPConnector()
@@ -234,7 +228,7 @@ class ClientSession:
         if loop.get_debug():
             self._source_traceback = traceback.extract_stack(
                 sys._getframe(1)
-            )  # type: Optional[traceback.StackSummary]  # noqa
+            )  # type: Optional[traceback.StackSummary]
         else:
             self._source_traceback = None
 
@@ -255,7 +249,7 @@ class ClientSession:
         if timeout is sentinel:
             self._timeout = DEFAULT_TIMEOUT
         else:
-            self._timeout = timeout  # type: ignore
+            self._timeout = timeout  # type: ignore[assignment]
         self._raise_for_status = raise_for_status
         self._auto_decompress = auto_decompress
         self._trust_env = trust_env
@@ -329,11 +323,11 @@ class ClientSession:
         expect100: bool = False,
         raise_for_status: Union[
             None, bool, Callable[[ClientResponse], Awaitable[None]]
-        ] = None,  # noqa
+        ] = None,
         read_until_eof: bool = True,
         proxy: Optional[StrOrURL] = None,
         proxy_auth: Optional[BasicAuth] = None,
-        timeout: Union[ClientTimeout, object] = sentinel,
+        timeout: Union[ClientTimeout, _SENTINEL] = sentinel,
         ssl: Optional[Union[SSLContext, bool, Fingerprint]] = None,
         proxy_headers: Optional[LooseHeaders] = None,
         trace_request_ctx: Optional[SimpleNamespace] = None,
@@ -388,7 +382,7 @@ class ClientSession:
             real_timeout = self._timeout  # type: ClientTimeout
         else:
             if not isinstance(timeout, ClientTimeout):
-                real_timeout = ClientTimeout(total=timeout)  # type: ignore
+                real_timeout = ClientTimeout(total=timeout)  # type: ignore[arg-type]
             else:
                 real_timeout = timeout
         # timeout is cumulative for all request operations
@@ -451,11 +445,8 @@ class ClientSession:
                     if proxy is not None:
                         proxy = URL(proxy)
                     elif self._trust_env:
-                        for scheme, proxy_info in proxies_from_env().items():
-                            if scheme == url.scheme:
-                                proxy = proxy_info.proxy
-                                proxy_auth = proxy_info.proxy_auth
-                                break
+                        with suppress(LookupError):
+                            proxy, proxy_auth = get_env_proxy_for_url(url)
 
                     req = self._request_class(
                         method,
@@ -627,7 +618,7 @@ class ClientSession:
         *,
         method: str = hdrs.METH_GET,
         protocols: Iterable[str] = (),
-        timeout: Union[ClientWSTimeout, float] = sentinel,
+        timeout: Union[ClientWSTimeout, float, _SENTINEL] = sentinel,
         receive_timeout: Optional[float] = None,
         autoclose: bool = True,
         autoping: bool = True,
@@ -671,7 +662,7 @@ class ClientSession:
         *,
         method: str = hdrs.METH_GET,
         protocols: Iterable[str] = (),
-        timeout: Union[ClientWSTimeout, float] = sentinel,
+        timeout: Union[ClientWSTimeout, float, _SENTINEL] = sentinel,
         receive_timeout: Optional[float] = None,
         autoclose: bool = True,
         autoping: bool = True,
@@ -697,7 +688,7 @@ class ClientSession:
                     DeprecationWarning,
                     stacklevel=2,
                 )
-                ws_timeout = ClientWSTimeout(ws_close=timeout)
+                ws_timeout = ClientWSTimeout(ws_close=timeout)  # type: ignore[arg-type]
         else:
             ws_timeout = DEFAULT_WS_CLIENT_TIMEOUT
         if receive_timeout is not None:
@@ -708,7 +699,7 @@ class ClientSession:
                 DeprecationWarning,
                 stacklevel=2,
             )
-            ws_timeout = attr.evolve(ws_timeout, ws_receive=receive_timeout)
+            ws_timeout = dataclasses.replace(ws_timeout, ws_receive=receive_timeout)
 
         if headers is None:
             real_headers = CIMultiDict()  # type: CIMultiDict[str]
@@ -716,8 +707,8 @@ class ClientSession:
             real_headers = CIMultiDict(headers)
 
         default_headers = {
-            hdrs.UPGRADE: hdrs.WEBSOCKET,
-            hdrs.CONNECTION: hdrs.UPGRADE,
+            hdrs.UPGRADE: "websocket",
+            hdrs.CONNECTION: "upgrade",
             hdrs.SEC_WEBSOCKET_VERSION: "13",
         }
 
@@ -835,7 +826,7 @@ class ClientSession:
             assert transport is not None
             reader = FlowControlDataQueue(
                 conn_proto, 2 ** 16, loop=self._loop
-            )  # type: FlowControlDataQueue[WSMessage]  # noqa
+            )  # type: FlowControlDataQueue[WSMessage]
             conn_proto.set_parser(WebSocketReader(reader, max_msg_size), reader)
             writer = WebSocketWriter(
                 conn_proto,
@@ -1060,7 +1051,7 @@ class _BaseRequestContextManager(Coroutine[Any, Any, _RetType], Generic[_RetType
     def send(self, arg: None) -> "asyncio.Future[Any]":
         return self._coro.send(arg)
 
-    def throw(self, arg: BaseException) -> None:  # type: ignore
+    def throw(self, arg: BaseException) -> None:  # type: ignore[arg-type,override]
         self._coro.throw(arg)
 
     def close(self) -> None:
@@ -1079,6 +1070,8 @@ class _BaseRequestContextManager(Coroutine[Any, Any, _RetType], Generic[_RetType
 
 
 class _RequestContextManager(_BaseRequestContextManager[ClientResponse]):
+    __slots__ = ()
+
     async def __aexit__(
         self,
         exc_type: Optional[Type[BaseException]],
@@ -1094,6 +1087,8 @@ class _RequestContextManager(_BaseRequestContextManager[ClientResponse]):
 
 
 class _WSRequestContextManager(_BaseRequestContextManager[ClientWebSocketResponse]):
+    __slots__ = ()
+
     async def __aexit__(
         self,
         exc_type: Optional[Type[BaseException]],
@@ -1155,7 +1150,7 @@ def request(
     read_until_eof: bool = True,
     proxy: Optional[StrOrURL] = None,
     proxy_auth: Optional[BasicAuth] = None,
-    timeout: Union[ClientTimeout, object] = sentinel,
+    timeout: Union[ClientTimeout, _SENTINEL] = sentinel,
     cookies: Optional[LooseCookies] = None,
     version: HttpVersion = http.HttpVersion11,
     connector: Optional[BaseConnector] = None,

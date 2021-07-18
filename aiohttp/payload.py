@@ -23,10 +23,12 @@ from typing import (
 )
 
 from multidict import CIMultiDict
+from typing_extensions import Final
 
 from . import hdrs
 from .abc import AbstractStreamWriter
 from .helpers import (
+    _SENTINEL,
     content_disposition_header,
     guess_filename,
     parse_mimetype,
@@ -51,11 +53,10 @@ __all__ = (
     "AsyncIterablePayload",
 )
 
-TOO_LARGE_BYTES_BODY = 2 ** 20  # 1 MB
-
+TOO_LARGE_BYTES_BODY: Final[int] = 2 ** 20  # 1 MB
 
 if TYPE_CHECKING:  # pragma: no cover
-    from typing import List  # noqa
+    from typing import List
 
 
 class LookupError(Exception):
@@ -88,6 +89,10 @@ class payload_type:
         return factory
 
 
+PayloadType = Type["Payload"]
+_PayloadRegistryItem = Tuple[PayloadType, Any]
+
+
 class PayloadRegistry:
     """Payload registry.
 
@@ -95,12 +100,16 @@ class PayloadRegistry:
     """
 
     def __init__(self) -> None:
-        self._first = []  # type: List[Tuple[Type[Payload], Any]]
-        self._normal = []  # type: List[Tuple[Type[Payload], Any]]
-        self._last = []  # type: List[Tuple[Type[Payload], Any]]
+        self._first = []  # type: List[_PayloadRegistryItem]
+        self._normal = []  # type: List[_PayloadRegistryItem]
+        self._last = []  # type: List[_PayloadRegistryItem]
 
     def get(
-        self, data: Any, *args: Any, _CHAIN: Any = chain, **kwargs: Any
+        self,
+        data: Any,
+        *args: Any,
+        _CHAIN: "Type[chain[_PayloadRegistryItem]]" = chain,
+        **kwargs: Any,
     ) -> "Payload":
         if isinstance(data, Payload):
             return data
@@ -111,7 +120,7 @@ class PayloadRegistry:
         raise LookupError()
 
     def register(
-        self, factory: Type["Payload"], type: Any, *, order: Order = Order.normal
+        self, factory: PayloadType, type: Any, *, order: Order = Order.normal
     ) -> None:
         if order is Order.try_first:
             self._first.append((factory, type))
@@ -134,7 +143,7 @@ class Payload(ABC):
         headers: Optional[
             Union[_CIMultiDict, Dict[str, str], Iterable[Tuple[str, str]]]
         ] = None,
-        content_type: Optional[str] = sentinel,
+        content_type: Union[None, str, _SENTINEL] = sentinel,
         filename: Optional[str] = None,
         encoding: Optional[str] = None,
         **kwargs: Any,
@@ -144,6 +153,7 @@ class Payload(ABC):
         self._headers = CIMultiDict()  # type: _CIMultiDict
         self._value = value
         if content_type is not sentinel and content_type is not None:
+            assert isinstance(content_type, str)
             self._headers[hdrs.CONTENT_TYPE] = content_type
         elif self._filename is not None:
             content_type = mimetypes.guess_type(self._filename)[0]
@@ -189,11 +199,15 @@ class Payload(ABC):
         return self._headers[hdrs.CONTENT_TYPE]
 
     def set_content_disposition(
-        self, disptype: str, quote_fields: bool = True, **params: Any
+        self,
+        disptype: str,
+        quote_fields: bool = True,
+        _charset: str = "utf-8",
+        **params: Any,
     ) -> None:
         """Sets ``Content-Disposition`` header."""
         self._headers[hdrs.CONTENT_DISPOSITION] = content_disposition_header(
-            disptype, quote_fields=quote_fields, **params
+            disptype, quote_fields=quote_fields, _charset=_charset, **params
         )
 
     @abstractmethod
@@ -271,6 +285,8 @@ class StringIOPayload(StringPayload):
 
 
 class IOBasePayload(Payload):
+    _value: IO[Any]
+
     def __init__(
         self, value: IO[Any], disposition: str = "attachment", *args: Any, **kwargs: Any
     ) -> None:
@@ -295,6 +311,8 @@ class IOBasePayload(Payload):
 
 
 class TextIOPayload(IOBasePayload):
+    _value: TextIO
+
     def __init__(
         self,
         value: TextIO,
@@ -335,7 +353,12 @@ class TextIOPayload(IOBasePayload):
         try:
             chunk = await loop.run_in_executor(None, self._value.read, 2 ** 16)
             while chunk:
-                await writer.write(chunk.encode(self._encoding))
+                data = (
+                    chunk.encode(encoding=self._encoding)
+                    if self._encoding
+                    else chunk.encode()
+                )
+                await writer.write(data)
                 chunk = await loop.run_in_executor(None, self._value.read, 2 ** 16)
         finally:
             await loop.run_in_executor(None, self._value.close)

@@ -1,5 +1,5 @@
-import asyncio  # noqa
-import collections.abc  # noqa
+import asyncio
+import collections.abc
 import datetime
 import enum
 import json
@@ -9,8 +9,8 @@ import warnings
 import zlib
 from concurrent.futures import Executor
 from email.utils import parsedate
-from http.cookies import Morsel, SimpleCookie
-from typing import (  # noqa
+from http.cookies import Morsel
+from typing import (
     TYPE_CHECKING,
     Any,
     Dict,
@@ -27,7 +27,18 @@ from multidict import CIMultiDict, istr
 
 from . import hdrs, payload
 from .abc import AbstractStreamWriter
-from .helpers import PY_38, HeadersMixin, rfc822_formatted_time, sentinel
+from .helpers import (
+    ETAG_ANY,
+    PY_38,
+    QUOTED_ETAG_RE,
+    CookieMixin,
+    ETag,
+    HeadersMixin,
+    populate_with_cookies,
+    rfc822_formatted_time,
+    sentinel,
+    validate_etag_value,
+)
 from .http import RESPONSES, SERVER_SOFTWARE, HttpVersion10, HttpVersion11
 from .payload import Payload
 from .typedefs import JSONEncoder, LooseHeaders
@@ -36,7 +47,7 @@ __all__ = ("ContentCoding", "StreamResponse", "Response", "json_response")
 
 
 if TYPE_CHECKING:  # pragma: no cover
-    from .web_request import BaseRequest  # noqa
+    from .web_request import BaseRequest
 
     BaseClass = MutableMapping[str, Any]
 else:
@@ -46,7 +57,7 @@ else:
 if not PY_38:
     # allow samesite to be used in python < 3.8
     # already permitted in python 3.8, see https://bugs.python.org/issue29613
-    Morsel._reserved["samesite"] = "SameSite"  # type: ignore
+    Morsel._reserved["samesite"] = "SameSite"  # type: ignore[attr-defined]
 
 
 class ContentCoding(enum.Enum):
@@ -64,7 +75,7 @@ class ContentCoding(enum.Enum):
 ############################################################
 
 
-class StreamResponse(BaseClass, HeadersMixin):
+class StreamResponse(BaseClass, HeadersMixin, CookieMixin):
 
     __slots__ = (
         "_length_check",
@@ -73,7 +84,6 @@ class StreamResponse(BaseClass, HeadersMixin):
         "_chunked",
         "_compression",
         "_compression_force",
-        "_cookies",
         "_req",
         "_payload_writer",
         "_eof_sent",
@@ -99,7 +109,6 @@ class StreamResponse(BaseClass, HeadersMixin):
         self._chunked = False
         self._compression = False
         self._compression_force = None  # type: Optional[ContentCoding]
-        self._cookies = SimpleCookie()  # type: SimpleCookie[str]
 
         self._req = None  # type: Optional[BaseRequest]
         self._payload_writer = None  # type: Optional[AbstractStreamWriter]
@@ -119,8 +128,11 @@ class StreamResponse(BaseClass, HeadersMixin):
         return self._payload_writer is not None
 
     @property
-    def task(self) -> "asyncio.Task[None]":
-        return getattr(self._req, "task", None)
+    def task(self) -> "Optional[asyncio.Task[None]]":
+        if self._req:
+            return self._req.task
+        else:
+            return None
 
     @property
     def status(self) -> int:
@@ -184,80 +196,6 @@ class StreamResponse(BaseClass, HeadersMixin):
     @property
     def headers(self) -> "CIMultiDict[str]":
         return self._headers
-
-    @property
-    def cookies(self) -> "SimpleCookie[str]":
-        return self._cookies
-
-    def set_cookie(
-        self,
-        name: str,
-        value: str,
-        *,
-        expires: Optional[str] = None,
-        domain: Optional[str] = None,
-        max_age: Optional[Union[int, str]] = None,
-        path: str = "/",
-        secure: Optional[bool] = None,
-        httponly: Optional[bool] = None,
-        version: Optional[str] = None,
-        samesite: Optional[str] = None,
-    ) -> None:
-        """Set or update response cookie.
-
-        Sets new cookie or updates existent with new value.
-        Also updates only those params which are not None.
-        """
-
-        old = self._cookies.get(name)
-        if old is not None and old.coded_value == "":
-            # deleted cookie
-            self._cookies.pop(name, None)
-
-        self._cookies[name] = value
-        c = self._cookies[name]
-
-        if expires is not None:
-            c["expires"] = expires
-        elif c.get("expires") == "Thu, 01 Jan 1970 00:00:00 GMT":
-            del c["expires"]
-
-        if domain is not None:
-            c["domain"] = domain
-
-        if max_age is not None:
-            c["max-age"] = str(max_age)
-        elif "max-age" in c:
-            del c["max-age"]
-
-        c["path"] = path
-
-        if secure is not None:
-            c["secure"] = secure
-        if httponly is not None:
-            c["httponly"] = httponly
-        if version is not None:
-            c["version"] = version
-        if samesite is not None:
-            c["samesite"] = samesite
-
-    def del_cookie(
-        self, name: str, *, domain: Optional[str] = None, path: str = "/"
-    ) -> None:
-        """Delete cookie.
-
-        Creates new empty expired cookie.
-        """
-        # TODO: do we need domain/path here?
-        self._cookies.pop(name, None)
-        self.set_cookie(
-            name,
-            "",
-            max_age=0,
-            expires="Thu, 01 Jan 1970 00:00:00 GMT",
-            domain=domain,
-            path=path,
-        )
 
     @property
     def content_length(self) -> Optional[int]:
@@ -337,6 +275,43 @@ class StreamResponse(BaseClass, HeadersMixin):
         elif isinstance(value, str):
             self._headers[hdrs.LAST_MODIFIED] = value
 
+    @property
+    def etag(self) -> Optional[ETag]:
+        quoted_value = self._headers.get(hdrs.ETAG)
+        if not quoted_value:
+            return None
+        elif quoted_value == ETAG_ANY:
+            return ETag(value=ETAG_ANY)
+        match = QUOTED_ETAG_RE.fullmatch(quoted_value)
+        if not match:
+            return None
+        is_weak, value = match.group(1, 2)
+        return ETag(
+            is_weak=bool(is_weak),
+            value=value,
+        )
+
+    @etag.setter
+    def etag(self, value: Optional[Union[ETag, str]]) -> None:
+        if value is None:
+            self._headers.pop(hdrs.ETAG, None)
+        elif (isinstance(value, str) and value == ETAG_ANY) or (
+            isinstance(value, ETag) and value.value == ETAG_ANY
+        ):
+            self._headers[hdrs.ETAG] = ETAG_ANY
+        elif isinstance(value, str):
+            validate_etag_value(value)
+            self._headers[hdrs.ETAG] = f'"{value}"'
+        elif isinstance(value, ETag) and isinstance(value.value, str):
+            validate_etag_value(value.value)
+            hdr_value = f'W/"{value.value}"' if value.is_weak else f'"{value.value}"'
+            self._headers[hdrs.ETAG] = hdr_value
+        else:
+            raise ValueError(
+                f"Unsupported etag type: {type(value)}. "
+                f"etag must be str, ETag or None"
+            )
+
     def _generate_content_type_header(
         self, CONTENT_TYPE: istr = hdrs.CONTENT_TYPE
     ) -> None:
@@ -399,9 +374,7 @@ class StreamResponse(BaseClass, HeadersMixin):
         version = request.version
 
         headers = self._headers
-        for cookie in self._cookies.values():
-            value = cookie.output(header="")[1:]
-            headers.add(hdrs.SET_COOKIE, value)
+        populate_with_cookies(headers, self.cookies)
 
         if self._compression:
             await self._start_compression(request)
@@ -431,7 +404,7 @@ class StreamResponse(BaseClass, HeadersMixin):
             elif version >= HttpVersion11 and self.status in (100, 101, 102, 103, 204):
                 del headers[hdrs.CONTENT_LENGTH]
 
-        if self.status != 204:
+        if self.status not in (204, 304):
             headers.setdefault(hdrs.CONTENT_TYPE, "application/octet-stream")
         headers.setdefault(hdrs.DATE, rfc822_formatted_time())
         headers.setdefault(hdrs.SERVER, SERVER_SOFTWARE)

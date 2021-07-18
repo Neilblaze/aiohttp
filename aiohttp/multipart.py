@@ -7,9 +7,11 @@ import warnings
 import zlib
 from collections import deque
 from types import TracebackType
-from typing import (  # noqa
+from typing import (
     TYPE_CHECKING,
     Any,
+    AsyncIterator,
+    Deque,
     Dict,
     Iterator,
     List,
@@ -19,10 +21,11 @@ from typing import (  # noqa
     Tuple,
     Type,
     Union,
+    cast,
 )
 from urllib.parse import parse_qsl, unquote, urlencode
 
-from multidict import CIMultiDict, CIMultiDictProxy, MultiMapping  # noqa
+from multidict import CIMultiDict, CIMultiDictProxy, MultiMapping
 
 from .hdrs import (
     CONTENT_DISPOSITION,
@@ -56,7 +59,7 @@ __all__ = (
 
 
 if TYPE_CHECKING:  # pragma: no cover
-    from .client_reqrep import ClientResponse  # noqa
+    from .client_reqrep import ClientResponse
 
 
 class BadContentDispositionHeader(RuntimeWarning):
@@ -222,7 +225,7 @@ class MultipartResponseWrapper:
     ) -> Union["MultipartReader", "BodyPartReader"]:
         part = await self.next()
         if part is None:
-            raise StopAsyncIteration  # NOQA
+            raise StopAsyncIteration
         return part
 
     def at_eof(self) -> bool:
@@ -266,18 +269,18 @@ class BodyPartReader:
         self._length = int(length) if length is not None else None
         self._read_bytes = 0
         # TODO: typeing.Deque is not supported by Python 3.5
-        self._unread = deque()  # type: Any
+        self._unread: Deque[bytes] = deque()
         self._prev_chunk = None  # type: Optional[bytes]
         self._content_eof = 0
         self._cache = {}  # type: Dict[str, Any]
 
-    def __aiter__(self) -> Iterator["BodyPartReader"]:
-        return self  # type: ignore
+    def __aiter__(self) -> AsyncIterator["BodyPartReader"]:
+        return self  # type: ignore[return-value]
 
     async def __anext__(self) -> bytes:
         part = await self.next()
         if part is None:
-            raise StopAsyncIteration  # NOQA
+            raise StopAsyncIteration
         return part
 
     async def next(self) -> Optional[bytes]:
@@ -447,7 +450,7 @@ class BodyPartReader:
         if not data:
             return None
         encoding = encoding or self.get_charset(default="utf-8")
-        return json.loads(data.decode(encoding))
+        return cast(Dict[str, Any], json.loads(data.decode(encoding)))
 
     async def form(self, *, encoding: Optional[str] = None) -> List[Tuple[str, str]]:
         """Like read(), but assumes that body parts contains form
@@ -576,22 +579,22 @@ class MultipartReader:
         self._content = content
         self._last_part = (
             None
-        )  # type: Optional[Union['MultipartReader', BodyPartReader]]  # noqa
+        )  # type: Optional[Union['MultipartReader', BodyPartReader]]
         self._at_eof = False
         self._at_bof = True
         self._unread = []  # type: List[bytes]
 
     def __aiter__(
         self,
-    ) -> Iterator["BodyPartReader"]:
-        return self  # type: ignore
+    ) -> AsyncIterator["BodyPartReader"]:
+        return self  # type: ignore[return-value]
 
     async def __anext__(
         self,
     ) -> Optional[Union["MultipartReader", BodyPartReader]]:
         part = await self.next()
         if part is None:
-            raise StopAsyncIteration  # NOQA
+            raise StopAsyncIteration
         return part
 
     @classmethod
@@ -780,7 +783,7 @@ class MultipartWriter(Payload):
 
         super().__init__(None, content_type=ctype)
 
-        self._parts = []  # type: List[_Part]  # noqa
+        self._parts = []  # type: List[_Part]
 
     def __enter__(self) -> "MultipartWriter":
         return self
@@ -885,7 +888,7 @@ class MultipartWriter(Payload):
         if size is not None and not (encoding or te_encoding):
             payload.headers[CONTENT_LENGTH] = str(size)
 
-        self._parts.append((payload, encoding, te_encoding))  # type: ignore
+        self._parts.append((payload, encoding, te_encoding))  # type: ignore[arg-type]
         return payload
 
     def append_json(
@@ -950,7 +953,7 @@ class MultipartWriter(Payload):
                     w.enable_compression(encoding)
                 if te_encoding:
                     w.enable_encoding(te_encoding)
-                await part.write(w)  # type: ignore
+                await part.write(w)  # type: ignore[arg-type]
                 await w.write_eof()
             else:
                 await part.write(writer)

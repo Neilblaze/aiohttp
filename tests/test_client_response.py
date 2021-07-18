@@ -1,8 +1,10 @@
+# type: ignore
 # Tests for aiohttp/client.py
 
 import gc
 import sys
 from json import JSONDecodeError
+from typing import Any
 from unittest import mock
 
 import pytest
@@ -21,7 +23,7 @@ def session():
     return mock.Mock()
 
 
-async def test_http_processing_error(session) -> None:
+async def test_http_processing_error(session: Any) -> None:
     loop = mock.Mock()
     request_info = mock.Mock()
     response = ClientResponse(
@@ -47,9 +49,10 @@ async def test_http_processing_error(session) -> None:
         await response.start(connection)
 
     assert info.value.request_info is request_info
+    response.close()
 
 
-def test_del(session) -> None:
+def test_del(session: Any) -> None:
     loop = mock.Mock()
     response = ClientResponse(
         "get",
@@ -77,7 +80,7 @@ def test_del(session) -> None:
     connection.release.assert_called_with()
 
 
-def test_close(loop, session) -> None:
+def test_close(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -97,7 +100,7 @@ def test_close(loop, session) -> None:
     response.close()
 
 
-def test_wait_for_100_1(loop, session) -> None:
+def test_wait_for_100_1(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://python.org"),
@@ -113,7 +116,7 @@ def test_wait_for_100_1(loop, session) -> None:
     response.close()
 
 
-def test_wait_for_100_2(loop, session) -> None:
+def test_wait_for_100_2(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://python.org"),
@@ -129,7 +132,7 @@ def test_wait_for_100_2(loop, session) -> None:
     response.close()
 
 
-def test_repr(loop, session) -> None:
+def test_repr(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -179,7 +182,7 @@ def test_repr_non_ascii_reason() -> None:
     )
 
 
-async def test_read_and_release_connection(loop, session) -> None:
+async def test_read_and_release_connection(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -205,7 +208,7 @@ async def test_read_and_release_connection(loop, session) -> None:
     assert response._connection is None
 
 
-async def test_read_and_release_connection_with_error(loop, session) -> None:
+async def test_read_and_release_connection_with_error(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -226,7 +229,7 @@ async def test_read_and_release_connection_with_error(loop, session) -> None:
     assert response._closed
 
 
-async def test_release(loop, session) -> None:
+async def test_release(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -251,7 +254,7 @@ async def test_release(loop, session) -> None:
     sys.implementation.name != "cpython",
     reason="Other implementations has different GC strategies",
 )
-async def test_release_on_del(loop, session) -> None:
+async def test_release_on_del(loop: Any, session: Any) -> None:
     connection = mock.Mock()
     connection.protocol.upgraded = False
 
@@ -275,7 +278,7 @@ async def test_release_on_del(loop, session) -> None:
     assert connection.release.called
 
 
-async def test_response_eof(loop, session) -> None:
+async def test_response_eof(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -296,7 +299,7 @@ async def test_response_eof(loop, session) -> None:
     assert response._connection is None
 
 
-async def test_response_eof_upgraded(loop, session) -> None:
+async def test_response_eof_upgraded(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -317,7 +320,7 @@ async def test_response_eof_upgraded(loop, session) -> None:
     assert response._connection is conn
 
 
-async def test_response_eof_after_connection_detach(loop, session) -> None:
+async def test_response_eof_after_connection_detach(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -338,7 +341,7 @@ async def test_response_eof_after_connection_detach(loop, session) -> None:
     assert response._connection is None
 
 
-async def test_text(loop, session) -> None:
+async def test_text(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -365,7 +368,7 @@ async def test_text(loop, session) -> None:
     assert response._connection is None
 
 
-async def test_text_bad_encoding(loop, session) -> None:
+async def test_text_bad_encoding(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -395,7 +398,7 @@ async def test_text_bad_encoding(loop, session) -> None:
     assert response._connection is None
 
 
-async def test_text_custom_encoding(loop, session) -> None:
+async def test_text_custom_encoding(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -424,7 +427,7 @@ async def test_text_custom_encoding(loop, session) -> None:
     assert not response.get_encoding.called
 
 
-async def test_text_detect_encoding(loop, session) -> None:
+async def test_text_detect_encoding(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -452,7 +455,7 @@ async def test_text_detect_encoding(loop, session) -> None:
     assert response._connection is None
 
 
-async def test_text_detect_encoding_if_invalid_charset(loop, session) -> None:
+async def test_text_detect_encoding_if_invalid_charset(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -481,7 +484,7 @@ async def test_text_detect_encoding_if_invalid_charset(loop, session) -> None:
     assert response.get_encoding().lower() in ("windows-1251", "maccyrillic")
 
 
-async def test_get_encoding_body_none(loop, session) -> None:
+async def test_get_encoding_body_none(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -511,7 +514,7 @@ async def test_get_encoding_body_none(loop, session) -> None:
     assert response.closed
 
 
-async def test_text_after_read(loop, session) -> None:
+async def test_text_after_read(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -538,7 +541,7 @@ async def test_text_after_read(loop, session) -> None:
     assert response._connection is None
 
 
-async def test_json(loop, session) -> None:
+async def test_json(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -565,7 +568,7 @@ async def test_json(loop, session) -> None:
     assert response._connection is None
 
 
-async def test_json_extended_content_type(loop, session) -> None:
+async def test_json_extended_content_type(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -594,7 +597,7 @@ async def test_json_extended_content_type(loop, session) -> None:
     assert response._connection is None
 
 
-async def test_json_custom_content_type(loop, session) -> None:
+async def test_json_custom_content_type(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -621,7 +624,7 @@ async def test_json_custom_content_type(loop, session) -> None:
     assert response._connection is None
 
 
-async def test_json_custom_loader(loop, session) -> None:
+async def test_json_custom_loader(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -643,7 +646,7 @@ async def test_json_custom_loader(loop, session) -> None:
     assert res == "data-custom"
 
 
-async def test_json_invalid_content_type(loop, session) -> None:
+async def test_json_invalid_content_type(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -664,7 +667,7 @@ async def test_json_invalid_content_type(loop, session) -> None:
     assert info.value.request_info == response.request_info
 
 
-async def test_json_no_content(loop, session) -> None:
+async def test_json_no_content(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -683,7 +686,7 @@ async def test_json_no_content(loop, session) -> None:
         await response.json(content_type=None)
 
 
-async def test_json_override_encoding(loop, session) -> None:
+async def test_json_override_encoding(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -712,7 +715,7 @@ async def test_json_override_encoding(loop, session) -> None:
     assert not response.get_encoding.called
 
 
-def test_get_encoding_unknown(loop, session) -> None:
+def test_get_encoding_unknown(loop: Any, session: Any) -> None:
     response = ClientResponse(
         "get",
         URL("http://def-cl-resp.org"),
@@ -955,7 +958,7 @@ def test_response_request_info() -> None:
     response = ClientResponse(
         "get",
         URL(url),
-        request_info=RequestInfo(url, "get", headers),
+        request_info=RequestInfo(url, "get", headers, url),
         writer=mock.Mock(),
         continue100=None,
         timer=TimerNoop(),
@@ -974,7 +977,7 @@ def test_request_info_in_exception() -> None:
     response = ClientResponse(
         "get",
         URL(url),
-        request_info=RequestInfo(url, "get", headers),
+        request_info=RequestInfo(url, "get", headers, url),
         writer=mock.Mock(),
         continue100=None,
         timer=TimerNoop(),
@@ -995,7 +998,7 @@ def test_no_redirect_history_in_exception() -> None:
     response = ClientResponse(
         "get",
         URL(url),
-        request_info=RequestInfo(url, "get", headers),
+        request_info=RequestInfo(url, "get", headers, url),
         writer=mock.Mock(),
         continue100=None,
         timer=TimerNoop(),
@@ -1018,7 +1021,7 @@ def test_redirect_history_in_exception() -> None:
     response = ClientResponse(
         "get",
         URL(url),
-        request_info=RequestInfo(url, "get", headers),
+        request_info=RequestInfo(url, "get", headers, url),
         writer=mock.Mock(),
         continue100=None,
         timer=TimerNoop(),
@@ -1032,7 +1035,7 @@ def test_redirect_history_in_exception() -> None:
     hist_response = ClientResponse(
         "get",
         URL(hist_url),
-        request_info=RequestInfo(url, "get", headers),
+        request_info=RequestInfo(url, "get", headers, url),
         writer=mock.Mock(),
         continue100=None,
         timer=TimerNoop(),
@@ -1051,7 +1054,7 @@ def test_redirect_history_in_exception() -> None:
     assert [hist_response] == cm.value.history
 
 
-async def test_response_read_triggers_callback(loop, session) -> None:
+async def test_response_read_triggers_callback(loop: Any, session: Any) -> None:
     trace = mock.Mock()
     trace.send_response_chunk_received = make_mocked_coro()
     response_method = "get"
@@ -1089,7 +1092,7 @@ async def test_response_read_triggers_callback(loop, session) -> None:
     )
 
 
-def test_response_real_url(loop, session) -> None:
+def test_response_real_url(loop: Any, session: Any) -> None:
     url = URL("http://def-cl-resp.org/#urlfragment")
     response = ClientResponse(
         "get",
@@ -1106,7 +1109,7 @@ def test_response_real_url(loop, session) -> None:
     assert response.real_url == url
 
 
-def test_response_links_comma_separated(loop, session) -> None:
+def test_response_links_comma_separated(loop: Any, session: Any) -> None:
     url = URL("http://def-cl-resp.org/")
     response = ClientResponse(
         "get",
@@ -1136,7 +1139,7 @@ def test_response_links_comma_separated(loop, session) -> None:
     }
 
 
-def test_response_links_multiple_headers(loop, session) -> None:
+def test_response_links_multiple_headers(loop: Any, session: Any) -> None:
     url = URL("http://def-cl-resp.org/")
     response = ClientResponse(
         "get",
@@ -1161,7 +1164,7 @@ def test_response_links_multiple_headers(loop, session) -> None:
     }
 
 
-def test_response_links_no_rel(loop, session) -> None:
+def test_response_links_no_rel(loop: Any, session: Any) -> None:
     url = URL("http://def-cl-resp.org/")
     response = ClientResponse(
         "get",
@@ -1180,7 +1183,7 @@ def test_response_links_no_rel(loop, session) -> None:
     }
 
 
-def test_response_links_quoted(loop, session) -> None:
+def test_response_links_quoted(loop: Any, session: Any) -> None:
     url = URL("http://def-cl-resp.org/")
     response = ClientResponse(
         "get",
@@ -1203,7 +1206,7 @@ def test_response_links_quoted(loop, session) -> None:
     }
 
 
-def test_response_links_relative(loop, session) -> None:
+def test_response_links_relative(loop: Any, session: Any) -> None:
     url = URL("http://def-cl-resp.org/")
     response = ClientResponse(
         "get",
@@ -1226,7 +1229,7 @@ def test_response_links_relative(loop, session) -> None:
     }
 
 
-def test_response_links_empty(loop, session) -> None:
+def test_response_links_empty(loop: Any, session: Any) -> None:
     url = URL("http://def-cl-resp.org/")
     response = ClientResponse(
         "get",
@@ -1241,3 +1244,24 @@ def test_response_links_empty(loop, session) -> None:
     )
     response._headers = CIMultiDict()
     assert response.links == {}
+
+
+def test_response_not_closed_after_get_ok(mocker) -> None:
+    response = ClientResponse(
+        "get",
+        URL("http://del-cl-resp.org"),
+        request_info=mock.Mock(),
+        writer=mock.Mock(),
+        continue100=None,
+        timer=TimerNoop(),
+        traces=[],
+        loop=mock.Mock(),
+        session=mock.Mock(),
+    )
+    response.status = 400
+    response.reason = "Bad Request"
+    response._closed = False
+    spy = mocker.spy(response, "raise_for_status")
+    assert not response.ok
+    assert not response.closed
+    assert spy.call_count == 0

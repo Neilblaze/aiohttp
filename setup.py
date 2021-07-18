@@ -5,8 +5,8 @@ import sys
 
 from setuptools import Extension, setup
 
-if sys.version_info < (3, 6):
-    raise RuntimeError("aiohttp 4.x requires Python 3.6+")
+if sys.version_info < (3, 7):
+    raise RuntimeError("aiohttp 4.x requires Python 3.7+")
 
 
 NO_EXTENSIONS = bool(os.environ.get("AIOHTTP_NO_EXTENSIONS"))  # type: bool
@@ -38,7 +38,6 @@ extensions = [
         ],
         define_macros=[("HTTP_PARSER_STRICT", 0)],
     ),
-    Extension("aiohttp._frozenlist", ["aiohttp/_frozenlist.c"]),
     Extension("aiohttp._helpers", ["aiohttp/_helpers.c"]),
     Extension("aiohttp._http_writer", ["aiohttp/_http_writer.c"]),
 ]
@@ -51,13 +50,14 @@ except IndexError:
     raise RuntimeError("Unable to determine version.")
 
 install_requires = [
-    "attrs>=17.3.0",
-    "chardet>=2.0,<4.0",
+    "chardet>=2.0,<5.0",
     "multidict>=4.5,<7.0",
     "async_timeout>=4.0a2,<5.0",
+    'asynctest==0.13.0; python_version<"3.8"',
     "yarl>=1.0,<2.0",
-    'idna-ssl>=1.0; python_version<"3.7"',
-    "typing_extensions>=3.6.5",
+    "typing_extensions>=3.7.4",
+    "frozenlist>=1.1.1",
+    "aiosignal>=1.1.2",
 ]
 
 
@@ -76,7 +76,6 @@ args = dict(
         "Intended Audience :: Developers",
         "Programming Language :: Python",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
@@ -99,7 +98,7 @@ args = dict(
     url="https://github.com/aio-libs/aiohttp",
     project_urls={
         "Chat: Gitter": "https://gitter.im/aio-libs/Lobby",
-        "CI: Azure Pipelines": "https://dev.azure.com/aio-libs/aiohttp/_build",
+        "CI: GitHub Actions": "https://github.com/aio-libs/aiohttp/actions?query=workflow%3ACI",  # noqa
         "Coverage: codecov": "https://codecov.io/github/aio-libs/aiohttp",
         "Docs: Changelog": "https://docs.aiohttp.org/en/stable/changes.html",
         "Docs: RTD": "https://docs.aiohttp.org",
@@ -108,7 +107,7 @@ args = dict(
     },
     license="Apache 2",
     packages=["aiohttp"],
-    python_requires=">=3.6",
+    python_requires=">=3.7",
     install_requires=install_requires,
     extras_require={
         "speedups": [
@@ -121,9 +120,9 @@ args = dict(
 )
 
 if not NO_EXTENSIONS:
-    print("**********************")
-    print("* Accellerated build *")
-    print("**********************")
+    print("*********************")
+    print("* Accelerated build *")
+    print("*********************")
     setup(ext_modules=extensions, **args)
 else:
     print("*********************")

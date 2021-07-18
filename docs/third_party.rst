@@ -98,6 +98,40 @@ Database drivers
   not drop-in replacement -- the API is different. Anyway please take
   a look on it -- the driver is really incredible fast.
 
+OpenAPI / Swagger extensions
+----------------------------
+
+Extensions bringing `OpenAPI <https://swagger.io/docs/specification/about>`_
+support to aiohttp web servers.
+
+- `aiohttp-apispec <https://github.com/maximdanilchenko/aiohttp-apispec>`_
+  Build and document REST APIs with ``aiohttp`` and ``apispec``.
+
+- `aiohttp_apiset <https://github.com/aamalev/aiohttp_apiset>`_
+  Package to build routes using swagger specification.
+
+- `aiohttp-pydantic <https://github.com/Maillol/aiohttp-pydantic>`_
+  An ``aiohttp.View`` to validate the HTTP request's body, query-string, and
+  headers regarding function annotations and generate OpenAPI doc. Python 3.8+
+  required.
+
+- `aiohttp-swagger <https://github.com/cr0hn/aiohttp-swagger>`_
+  Swagger API Documentation builder for aiohttp server.
+
+- `aiohttp-swagger3 <https://github.com/hh-h/aiohttp-swagger3>`_
+  Library for Swagger documentation builder and validating aiohttp requests
+  using swagger specification 3.0.
+
+- `aiohttp-swaggerify <https://github.com/dchaplinsky/aiohttp_swaggerify>`_
+  Library to automatically generate swagger2.0 definition for aiohttp endpoints.
+
+- `aio-openapi <https://github.com/quantmind/aio-openapi>`_
+  Asynchronous web middleware for aiohttp and serving Rest APIs with OpenAPI v3
+  specification and with optional PostgreSql database bindings.
+
+- `rororo <https://github.com/playpauseandstop/rororo>`_
+  Implement ``aiohttp.web`` OpenAPI 3 server applications with schema first
+  approach. Python 3.6+ required.
 
 Others
 ------
@@ -108,6 +142,9 @@ They may be perfect or not -- we don't know.
 
 Please add your library reference here first and after some time
 period ask to raise the status.
+
+- `pytest-aiohttp-client <https://github.com/sivakov512/pytest-aiohttp-client>`_
+  Pytest fixture with simpler api, payload decoding and status code assertions.
 
 - `octomachinery <https://octomachinery.dev>`_ A framework for developing
   GitHub Apps and GitHub Actions. Python 3.7+ is required.
@@ -124,15 +161,6 @@ period ask to raise the status.
 - `gain <https://github.com/gaojiuli/gain>`_ Web crawling framework
   based on asyncio for everyone.
 
-- `aiohttp-swagger <https://github.com/cr0hn/aiohttp-swagger>`_
-  Swagger API Documentation builder for aiohttp server.
-
-- `aiohttp-swagger3 <https://github.com/hh-h/aiohttp-swagger3>`_
-  Library for Swagger documentation builder and validating aiohttp requests using swagger specification 3.0.
-
-- `aiohttp-swaggerify <https://github.com/dchaplinsky/aiohttp_swaggerify>`_
-  Library to automatically generate swagger2.0 definition for aiohttp endpoints.
-
 - `aiohttp-validate <https://github.com/dchaplinsky/aiohttp_validate>`_
   Simple library that helps you validate your API endpoints requests/responses with json schema.
 
@@ -144,9 +172,6 @@ period ask to raise the status.
   popular web frameworks, including Flask, Django, Bottle, Tornado,
   Pyramid, webapp2, Falcon, and aiohttp.
 
-- `aioauth-client <https://github.com/klen/aioauth-client>`_ OAuth
-  client for aiohttp.
-
 - `aiohttpretty
   <https://github.com/CenterForOpenScience/aiohttpretty>`_ A simple
   asyncio compatible httpretty mock using aiohttp.
@@ -157,9 +182,6 @@ period ask to raise the status.
 - `aiohttp-transmute
   <https://github.com/toumorokoshi/aiohttp-transmute>`_ A transmute
   implementation for aiohttp.
-
-- `aiohttp_apiset <https://github.com/aamalev/aiohttp_apiset>`_
-  Package to build routes using swagger specification.
 
 - `aiohttp-login <https://github.com/imbolc/aiohttp-login>`_
   Registration and authorization (including social) for aiohttp
@@ -239,9 +261,6 @@ period ask to raise the status.
 - `GINO <https://github.com/fantix/gino>`_
   An asyncio ORM on top of SQLAlchemy core, delivered with an aiohttp extension.
 
-- `aiohttp-apispec <https://github.com/maximdanilchenko/aiohttp-apispec>`_
-  Build and document REST APIs with ``aiohttp`` and ``apispec``.
-
 - `eider-py <https://github.com/eider-rpc/eider-py>`_ Python implementation of
   the `Eider RPC protocol <http://eider.readthedocs.io/>`_.
 
@@ -258,10 +277,6 @@ period ask to raise the status.
 - `DBGR <https://github.com/JakubTesarek/dbgr>`_
   Terminal based tool to test and debug HTTP APIs with ``aiohttp``.
 
-- `rororo <https://github.com/playpauseandstop/rororo>`_
-  Implement ``aiohtp.web`` OpenAPI 3 server applications with schema first
-  approach. Python 3.6+ required.
-
 - `aiohttp-middlewares <https://github.com/playpauseandstop/aiohttp-middlewares>`_
   Collection of useful middlewares for ``aiohttp.web`` applications. Python
   3.6+ required.
@@ -272,3 +287,6 @@ period ask to raise the status.
 
 - `aiohttp-sse-client <https://github.com/rtfol/aiohttp-sse-client>`_
   A Server-Sent Event python client base on aiohttp. Python 3.6+ required.
+
+- `aiohttp-retry <https://github.com/inyutin/aiohttp_retry>`_
+  Wrapper for aiohttp client for retrying requests. Python 3.6+ required.
